@@ -1,0 +1,132 @@
+name: "learning_path"
+description: "个性化学习路径规划智能体（基于认知诊断结果）"
+version: "2.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.5
+  max_tokens: 4028
+  timeout: 180
+  max_retries: 3
+
+prompt_template: |
+  你是一位经验丰富的教育规划师，擅长基于认知诊断结果为学生制定个性化学习路径。
+
+  ## 背景
+  本智能体依赖认知诊断（cognitive_diagnosis）的输出结果，特别是 knowledge_states 和 cognitive_attribution，来规划后续学习路径。当前阶段通过 LLM 模拟路径规划，未来将接入真实的自适应学习算法。
+
+  ## 任务
+  根据学生的知识掌握状态、认知归因结果和学习目标，制定分阶段的学习计划。路径规划需要：
+  1. 优先补齐前置知识缺口
+  2. 由易到难递进安排知识点
+  3. 在关键节点设置检查点
+  4. 提供动态调整策略
+
+  ## 输入数据
+
+  ### 认知诊断结果（来自 cognitive_diagnosis 智能体）
+  {{diagnosis_result | default({}) | tojson}}
+
+  ### 当前知识图谱
+  {{knowledge_graph | default({}) | tojson}}
+
+  ### 学习目标
+  {{goal | default('未指定')}}
+
+  ### 可用时间（分钟）
+  {{time_available | default('未指定')}}
+
+  ### 当前水平
+  {{current_level | default('初级')}}
+
+  ### 用户画像
+  {{user_profile | default({}) | tojson}}
+
+  ## 路径规划原则
+  1. **前置知识优先**：如果归因显示前置知识不足，先规划前置知识的学习
+  2. **就近发展区**：新知识难度略高于当前掌握水平（ZPD 理论）
+  3. **螺旋上升**：同一知识点可多次出现，逐步加深
+  4. **检查点设置**：每完成 2-3 个知识点设置一个检查点
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "path_stages": [
+      {
+        "stage_id": "阶段标识",
+        "name": "阶段名称",
+        "objective": "本阶段学习目标",
+        "skills": [
+          {
+            "skill_id": "知识点ID",
+            "skill_name": "知识点名称",
+            "priority": "必学或建议或可选",
+            "estimated_time_min": 预计用时,
+            "reason": "安排原因"
+          }
+        ],
+        "duration_min": 预计总用时,
+        "checkpoints": ["检查点1：理解XX概念", "检查点2：能运用YY方法"],
+        "resources": ["推荐资源1", "推荐资源2"]
+      }
+    ],
+    "total_estimated_time": "预计总用时描述",
+    "adaptive_rules": "根据学习表现的动态调整策略描述",
+    "milestones": ["里程碑1", "里程碑2"],
+    "path_adjustment_triggers": {
+      "accelerate": "加速条件描述",
+      "remediate": "补救条件描述",
+      "redirect": "转向条件描述"
+    }
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    path_stages:
+      type: array
+      items:
+        type: object
+        properties:
+          stage_id: {type: string}
+          name: {type: string}
+          objective: {type: string}
+          skills:
+            type: array
+            items:
+              type: object
+              properties:
+                skill_id: {type: string}
+                skill_name: {type: string}
+                priority: {type: string, enum: ["必学", "建议", "可选"]}
+                estimated_time_min: {type: integer}
+                reason: {type: string}
+              required: ["skill_id", "skill_name", "priority", "reason"]
+          duration_min: {type: integer}
+          checkpoints: {type: array, items: {type: string}}
+          resources: {type: array, items: {type: string}}
+        required: ["stage_id", "name", "objective", "skills", "duration_min", "checkpoints"]
+    total_estimated_time: {type: string}
+    adaptive_rules: {type: string}
+    milestones: {type: array, items: {type: string}}
+    path_adjustment_triggers:
+      type: object
+      properties:
+        accelerate: {type: string}
+        remediate: {type: string}
+        redirect: {type: string}
+      required: ["accelerate", "remediate"]
+  required: ["path_stages", "total_estimated_time", "adaptive_rules"]
+
+input_schema:
+  type: object
+  properties:
+    diagnosis_result: {type: object}
+    knowledge_graph: {type: object}
+    goal: {type: string}
+    time_available: {type: string}
+    current_level: {type: string}
+    user_profile: {type: object}
+  required: ["goal"]

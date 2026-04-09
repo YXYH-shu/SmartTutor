@@ -1,0 +1,25 @@
+# Smart Tutor – default configuration
+# Environment variables take precedence over values defined here.
+
+database:
+  url: "sqlite+aiosqlite:///./smart_tutor.db"
+  echo: false
+
+llm:
+  provider: "glm"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  api_key: "sk-xxxxxxxxxxxxxxxx"
+  model_name: "glm-4-flash"
+  max_retries: 3
+  timeout: 60
+
+app:
+  debug: true
+  secret_key: "change-me-in-production-32chars!!"
+  jwt_expiration: 86400
+  cors_origins:
+    - "http://localhost:3000"
+
+langgraph:
+  checkpoint_type: "memory"
+  checkpoint_postgres_url: "postgresql+psycopg://tutor:tutor123@localhost:5432/smart_tutor_checkpoint"

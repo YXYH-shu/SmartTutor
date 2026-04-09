@@ -1,0 +1,154 @@
+### ──────────────────────────────────────────────────────────────────
+### Smart Tutor API – Manual Test Suite (REST Client / VS Code)
+### Base URL: http://localhost:8000
+### ──────────────────────────────────────────────────────────────────
+
+@baseUrl = http://localhost:8000
+@token = {{login.response.body.access_token}}
+@refreshToken = {{login.response.body.refresh_token}}
+@conversationId = {{createConv.response.body.id}}
+
+### ── Health Check ──────────────────────────────────────────────
+
+GET {{baseUrl}}/health
+Accept: application/json
+
+### ── Register ──────────────────────────────────────────────────
+
+# @name register
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+### ── Login ─────────────────────────────────────────────────────
+
+# @name login
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+### ── Get Current User ─────────────────────────────────────────
+
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{token}}
+
+### ── Refresh Token ─────────────────────────────────────────────
+
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
+}
+
+### ── Get Profile ──────────────────────────────────────────────
+
+GET {{baseUrl}}/api/v1/users/profile
+Authorization: Bearer {{token}}
+
+### ── Update Profile ───────────────────────────────────────────
+
+PUT {{baseUrl}}/api/v1/users/profile
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "learning_style": "视觉",
+  "current_level": "中级",
+  "preferences": {"theme": "dark", "language": "zh-CN"}
+}
+
+### ── Get Stats ────────────────────────────────────────────────
+
+GET {{baseUrl}}/api/v1/users/stats
+Authorization: Bearer {{token}}
+
+### ── Create Conversation ──────────────────────────────────────
+
+# @name createConv
+POST {{baseUrl}}/api/v1/conversations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Python学习"
+}
+
+### ── List Conversations ───────────────────────────────────────
+
+GET {{baseUrl}}/api/v1/conversations?page=1&page_size=10
+Authorization: Bearer {{token}}
+
+### ── Get Conversation Detail ──────────────────────────────────
+
+GET {{baseUrl}}/api/v1/conversations/{{conversationId}}
+Authorization: Bearer {{token}}
+
+### ── Update Conversation Title ─────────────────────────────────
+
+PUT {{baseUrl}}/api/v1/conversations/{{conversationId}}/title
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Python函数学习"
+}
+
+### ── Send Message (non-streaming) ─────────────────────────────
+
+POST {{baseUrl}}/api/v1/chat/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "conversation_id": "{{conversationId}}",
+  "content": "我想学习Python函数，从哪里开始？"
+}
+
+### ── Send Message (SSE streaming) ─────────────────────────────
+
+POST {{baseUrl}}/api/v1/chat/stream
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "conversation_id": "{{conversationId}}",
+  "content": "能给我讲讲lambda表达式吗？"
+}
+
+### ── Get Chat History ─────────────────────────────────────────
+
+GET {{baseUrl}}/api/v1/chat/history?conversation_id={{conversationId}}&limit=20
+Authorization: Bearer {{token}}
+
+### ── Submit Feedback ──────────────────────────────────────────
+
+POST {{baseUrl}}/api/v1/chat/feedback
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message_id": "replace-with-real-message-id",
+  "feedback_type": "thumb_up",
+  "comment": "解释得很清楚！"
+}
+
+### ── Delete Conversation ──────────────────────────────────────
+
+DELETE {{baseUrl}}/api/v1/conversations/{{conversationId}}
+Authorization: Bearer {{token}}
+
+### ── Logout ────────────────────────────────────────────────────
+
+POST {{baseUrl}}/api/v1/auth/logout
+Authorization: Bearer {{token}}

@@ -1,0 +1,154 @@
+name: "study_buddy"
+description: "学伴推荐与学习小组匹配智能体（LLM 模拟多维度匹配）"
+version: "2.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.5
+  max_tokens: 4028
+  timeout: 60
+  max_retries: 2
+
+prompt_template: |
+  你是一位擅长构建学习社区的教育顾问，负责为学生推荐互补性强的学习伙伴。
+
+  ## 背景
+  本系统的学伴匹配基于多维度相似度计算：年级差异（grade_diff）、行为相似度（behavior_sim）、路径相似度（path_sim）、知识结构相似度（knowledge_sim）、情感状态相似度（emotion_sim）、嵌入向量相似度（embed_sim）。当前阶段通过 LLM 模拟匹配过程，未来将接入真实的匹配算法。
+
+  ## 匹配流程（模拟）
+  1. **规划阶段**：根据学生需求确定匹配维度权重
+  2. **执行阶段**：模拟候选学伴召回与多维度评分
+  3. **总结阶段**：整合匹配结果，生成推荐理由和协作建议
+  4. **反思阶段**：评估匹配质量
+
+  ## 输入数据
+
+  ### 用户知识图谱
+  {{user_graph | default({}) | tojson}}
+
+  ### 当前学习主题
+  {{topic | default('未指定')}}
+
+  ### 学习偏好
+  {{preferences | default({}) | tojson}}
+
+  ### 用户画像
+  {{user_profile | default({}) | tojson}}
+
+  ### 认知诊断结果
+  {{diagnosis_result | default({}) | tojson}}
+
+  ### 候选学伴列表（模拟数据）
+  {{candidate_buddies | default([]) | tojson}}
+
+  ## 匹配原则
+  1. **知识互补优先**：优先推荐擅长目标学生薄弱领域的伙伴
+  2. **水平相近**：避免水平差距过大的匹配（维持最近发展区）
+  3. **学习风格互补**：不同学习风格的伙伴可以互相启发
+  4. **情感状态考虑**：处于积极情感状态的学生更适合带动情绪低落的伙伴
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "matching_plan": {
+      "dimensions": [
+        {"name": "知识互补度", "weight": 0.4, "reason": "权重设置原因"},
+        {"name": "水平相近度", "weight": 0.25, "reason": "权重设置原因"},
+        {"name": "风格互补度", "weight": 0.2, "reason": "权重设置原因"},
+        {"name": "情感匹配度", "weight": 0.15, "reason": "权重设置原因"}
+      ],
+      "strategy": "匹配策略描述"
+    },
+    "buddies": [
+      {
+        "user_id": "推荐用户ID",
+        "nickname": "昵称（可匿名化）",
+        "complement_score": 0.0到1.0,
+        "dimension_scores": {
+          "knowledge_complement": 知识互补度,
+          "level_similarity": 水平相近度,
+          "style_complement": 风格互补度,
+          "emotion_match": 情感匹配度
+        },
+        "strengths": ["该用户擅长领域1", "该用户擅长领域2"],
+        "weaknesses": ["该用户薄弱领域"],
+        "contact_suggestion": "联系建议",
+        "collaboration_mode": "适合的协作模式（如互问互答、知识互补、同伴教学等）"
+      }
+    ],
+    "group_suggestion": {
+      "optimal_size": 推荐小组人数,
+      "formation_strategy": "组队策略描述",
+      "activity_suggestions": ["建议的协作活动1", "建议的协作活动2"]
+    },
+    "reflection": {
+      "match_quality": "匹配质量评估",
+      "potential_issues": ["可能的问题1"],
+      "improvement_suggestion": "改进建议"
+    }
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    matching_plan:
+      type: object
+      properties:
+        dimensions:
+          type: array
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              weight: {type: number}
+              reason: {type: string}
+            required: ["name", "weight"]
+        strategy: {type: string}
+      required: ["dimensions", "strategy"]
+    buddies:
+      type: array
+      items:
+        type: object
+        properties:
+          user_id: {type: string}
+          nickname: {type: string}
+          complement_score: {type: number, minimum: 0, maximum: 1}
+          dimension_scores:
+            type: object
+            properties:
+              knowledge_complement: {type: number}
+              level_similarity: {type: number}
+              style_complement: {type: number}
+              emotion_match: {type: number}
+          strengths: {type: array, items: {type: string}}
+          weaknesses: {type: array, items: {type: string}}
+          contact_suggestion: {type: string}
+          collaboration_mode: {type: string}
+        required: ["user_id", "complement_score", "strengths", "contact_suggestion"]
+    group_suggestion:
+      type: object
+      properties:
+        optimal_size: {type: integer}
+        formation_strategy: {type: string}
+        activity_suggestions: {type: array, items: {type: string}}
+      required: ["optimal_size", "formation_strategy", "activity_suggestions"]
+    reflection:
+      type: object
+      properties:
+        match_quality: {type: string}
+        potential_issues: {type: array, items: {type: string}}
+        improvement_suggestion: {type: string}
+  required: ["matching_plan", "buddies", "group_suggestion"]
+
+input_schema:
+  type: object
+  properties:
+    user_graph: {type: object}
+    topic: {type: string}
+    preferences: {type: object}
+    user_profile: {type: object}
+    diagnosis_result: {type: object}
+    candidate_buddies: {type: array}
+  required: ["topic"]

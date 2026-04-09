@@ -1,0 +1,133 @@
+name: "cognitive_diagnosis"
+description: "认知诊断与知识掌握度评估智能体（LLM 模拟 Knowledge Tracing）"
+version: "2.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.3
+  max_tokens: 4028
+  timeout: 180
+  max_retries: 3
+
+prompt_template: |
+  你是一位资深的教育测评专家，擅长通过学生的答题记录和对话进行认知诊断。
+
+  ## 背景
+  本系统使用 Knowledge Tracing (KT) 技术对学生的知识掌握情况进行建模。当前阶段你通过 LLM 模拟 KT 模型的诊断过程，未来将接入真实的 DKT（Deep Knowledge Tracing）后端。
+
+  ## 任务
+  分析学生的学习轨迹（答题记录、对话历史），完成以下诊断：
+  1. **知识掌握度评估**：对每个知识点给出 0-1 的掌握概率（模拟 probability_correct）
+  2. **认知归因**：识别学生出错的知识根源（是否因为前置知识不足、概念误解等）
+  3. **薄弱环节定位**：找出需要重点补习的知识点
+  4. **诊断报告**：用自然语言总结诊断结果
+
+  ## 输入数据
+
+  ### 学生学习轨迹
+  每条记录包含 skill_id（知识点）和 correct（是否答对）：
+  {{learning_traces | default([]) | tojson}}
+
+  ### 最近对话记录
+  {% for msg in recent_messages %}
+  - [{{msg.role}}]: {{msg.content}}
+  {% endfor %}
+
+  ### 当前知识图谱
+  {{knowledge_graph | default({}) | tojson}}
+
+  ### 已有掌握度数据（来自 user_profile）
+  {{existing_mastery | default({}) | tojson}}
+
+  ## 诊断要求
+  1. 参照真实 KT 模型的输出格式，为每个相关知识点生成 probability_correct
+  2. 如果学生某知识点答错，追溯其前置知识点（pre_knowledge）是否掌握
+  3. 区分"完全未掌握"（< 0.3）、"部分掌握"（0.3-0.7）、"基本掌握"（> 0.7）
+  4. 对话中体现出的概念误解要标注在归因中
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "knowledge_states": [
+      {
+        "skill_id": "知识点ID或名称",
+        "skill_name": "知识点名称",
+        "probability_correct": 0.0到1.0,
+        "mastery_level": "未掌握或部分掌握或基本掌握",
+        "evidence": "判断依据（来自哪条答题/对话记录）"
+      }
+    ],
+    "cognitive_attribution": {
+      "root_causes": [
+        {
+          "weak_skill": "薄弱知识点",
+          "cause_type": "前置知识不足或概念误解或计算错误或审题错误",
+          "pre_skills_missing": ["缺失的前置知识点"],
+          "description": "归因描述"
+        }
+      ]
+    },
+    "weak_points": ["薄弱知识点1", "薄弱知识点2"],
+    "diagnosis_summary": "诊断总结（2-3句话，面向学生的温和描述）",
+    "recommended_actions": ["建议的学习行动1", "建议的学习行动2"]
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    knowledge_states:
+      type: array
+      items:
+        type: object
+        properties:
+          skill_id: {type: string}
+          skill_name: {type: string}
+          probability_correct: {type: number, minimum: 0, maximum: 1}
+          mastery_level: {type: string, enum: ["未掌握", "部分掌握", "基本掌握"]}
+          evidence: {type: string}
+        required: ["skill_id", "skill_name", "probability_correct", "mastery_level"]
+    cognitive_attribution:
+      type: object
+      properties:
+        root_causes:
+          type: array
+          items:
+            type: object
+            properties:
+              weak_skill: {type: string}
+              cause_type: {type: string}
+              pre_skills_missing: {type: array, items: {type: string}}
+              description: {type: string}
+            required: ["weak_skill", "cause_type", "description"]
+      required: ["root_causes"]
+    weak_points:
+      type: array
+      items: {type: string}
+    diagnosis_summary:
+      type: string
+    recommended_actions:
+      type: array
+      items: {type: string}
+  required: ["knowledge_states", "cognitive_attribution", "weak_points", "diagnosis_summary", "recommended_actions"]
+
+input_schema:
+  type: object
+  properties:
+    learning_traces:
+      type: array
+      items:
+        type: object
+        properties:
+          skill_id: {type: string}
+          correct: {type: boolean}
+    recent_messages:
+      type: array
+      items:
+        type: object
+    knowledge_graph:
+      type: object
+    existing_mastery:
+      type: object
+  required: ["recent_messages"]

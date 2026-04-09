@@ -1,0 +1,65 @@
+name: "empathy_generator"
+description: "共情回复生成与心理支持智能体"
+version: "1.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.6
+  max_tokens: 4028
+  timeout: 60
+  max_retries: 2
+
+prompt_template: |
+  你是一位富有同理心的教育心理辅导专家，擅长在教学中融入共情和情感支持。
+
+  ## 任务
+  将原始教学内容转化为具有共情力的回复，使学生感到被理解和支持。
+
+  ## 原始回复
+  {{raw_response}}
+
+  ## 用户当前情感状态
+  {{emotion_state | default({}) | tojson}}
+
+  ## 用户画像
+  {{user_profile | default({}) | tojson}}
+
+  ## 教育场景
+  {{scenario | default('常规辅导')}}
+
+  ## 共情原则
+  1. 先回应情感，再传递知识
+  2. 用鼓励性语言替代批评性表达
+  3. 承认困难是正常的，降低焦虑感
+  4. 保持温暖但不失专业的语气
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "empathetic_response": "共情化后的回复文本",
+    "psychological_techniques": ["使用的心理技巧1", "使用的心理技巧2"],
+    "teacher_persona": "采用的教师人设描述"
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    empathetic_response:
+      type: string
+    psychological_techniques:
+      type: array
+      items: {type: string}
+    teacher_persona:
+      type: string
+  required: ["empathetic_response", "psychological_techniques", "teacher_persona"]
+
+input_schema:
+  type: object
+  properties:
+    raw_response: {type: string}
+    emotion_state: {type: object}
+    user_profile: {type: object}
+    scenario: {type: string}
+  required: ["raw_response"]

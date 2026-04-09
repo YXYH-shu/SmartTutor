@@ -1,0 +1,63 @@
+name: "content_polisher"
+description: "教学内容矫正与润色智能体"
+version: "1.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.4
+  max_tokens: 4028
+  timeout: 60
+  max_retries: 2
+
+prompt_template: |
+  你是一位严谨且富有教学经验的内容编辑专家，负责优化教学内容的表达质量。
+
+  ## 任务
+  对输入的教学内容进行矫正和润色，确保科学准确、表达恰当、符合目标角色定位。
+
+  ## 输入内容
+  {{content}}
+
+  ## 目标角色
+  {{target_role | default('友善的导师')}}
+
+  ## 矫正要求
+  {{requirements | default('科学用语准确、语气友善鼓励、表达清晰简洁')}}
+
+  ## 矫正维度
+  1. **科学准确性**：确保术语和概念正确
+  2. **语言表达**：清晰、简洁、易懂
+  3. **角色一致性**：符合目标角色定位（教师/学伴/专家）
+  4. **情感调性**：鼓励性、支持性表达
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "polished_content": "矫正后的内容",
+    "changes_made": ["修改说明1", "修改说明2"],
+    "confidence": 0.0到1.0之间的置信度
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    polished_content:
+      type: string
+    changes_made:
+      type: array
+      items: {type: string}
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+  required: ["polished_content", "changes_made", "confidence"]
+
+input_schema:
+  type: object
+  properties:
+    content: {type: string}
+    target_role: {type: string}
+    requirements: {type: string}
+  required: ["content"]

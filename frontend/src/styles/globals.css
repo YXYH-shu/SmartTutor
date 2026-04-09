@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Custom scrollbar ────────────────────────────────────────── */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.primary.300') transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: theme('colors.primary.300');
+    border-radius: 999px;
+  }
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: theme('colors.primary.700');
+  }
+}
+
+/* ── Message bubble radii ────────────────────────────────────── */
+@layer utilities {
+  .rounded-msg-user {
+    border-radius: 16px 16px 4px 16px;
+  }
+  .rounded-msg-ai {
+    border-radius: 16px 16px 16px 4px;
+  }
+}
+
+/* ── Transitions ─────────────────────────────────────────────── */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-white text-gray-900 transition-colors duration-200;
+    @apply dark:bg-gray-950 dark:text-gray-100;
+  }
+}
+
+/* ── Prose overrides for AI message content ──────────────────── */
+.prose pre {
+  @apply my-2 rounded-lg;
+}
+.prose code:not(pre code) {
+  @apply rounded px-1 py-0.5 text-sm;
+}
+.prose code:not(pre code) {
+  @apply bg-gray-100 text-primary-700;
+  @apply dark:bg-gray-700 dark:text-primary-300;
+}
+.prose p {
+  @apply my-1;
+}
+.prose ul, .prose ol {
+  @apply my-1;
+}
+.prose blockquote {
+  @apply border-l-4 border-primary-300 pl-4 italic text-gray-600 dark:text-gray-400;
+}
+.prose table {
+  @apply my-2 w-full text-sm;
+}
+.prose th {
+  @apply bg-gray-100 px-3 py-1.5 text-left font-medium dark:bg-gray-800;
+}
+.prose td {
+  @apply border-t border-gray-200 px-3 py-1.5 dark:border-gray-700;
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes bounce-dot {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+/* ── Skeleton loader ─────────────────────────────────────────── */
+.skeleton {
+  @apply animate-pulse rounded bg-gray-200 dark:bg-gray-700;
+}

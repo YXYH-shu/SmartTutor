@@ -1,0 +1,68 @@
+# Smart Tutor – predefined workflow definitions
+# Each workflow is a sequence of stages; each stage lists agents to invoke.
+#
+# Design principles:
+# - Stage = minimum unit that produces output after one execution round
+# - Internal operations (no output needed) are merged into the same stage
+# - Emotion analysis runs automatically before the decision node (not in stages)
+# - The last agent in each stage should produce user-visible content
+
+workflows:
+  # ── 新用户引导 ─────────────────────────────────────────────────────
+  onboarding:
+    description: "首次使用，建立用户画像和学习基线"
+    stages:
+      - id: "welcome"
+        name: "欢迎与情感建立"
+        agents: ["empathy_generator"]
+        output_to_user: true
+
+      - id: "diagnosis_and_plan"
+        name: "诊断与规划"
+        agents: ["cognitive_diagnosis", "learning_path", "content_polisher"]
+        output_to_user: true
+
+  # ── 自适应学习（主流程）─────────────────────────────────────────────
+  adaptive_learning:
+    description: "根据状态动态调整的学习流程"
+    stages:
+      - id: "teaching"
+        name: "教学讲解"
+        agents: ["cognitive_diagnosis", "resource_recommender", "content_polisher", "empathy_generator"]
+        output_to_user: true
+
+      - id: "comprehension_check"
+        name: "理解确认"
+        agents: ["cognitive_diagnosis", "empathy_generator"]
+        output_to_user: true
+
+  # ── 协作学习 ───────────────────────────────────────────────────────
+  collaborative_learning:
+    description: "推荐学伴，共同学习"
+    stages:
+      - id: "buddy_matching"
+        name: "学伴匹配"
+        agents: ["study_buddy"]
+        output_to_user: true
+
+      - id: "collaboration_guide"
+        name: "协作指导"
+        agents: ["learning_path", "empathy_generator"]
+        output_to_user: true
+
+  # ── 复习评估 ───────────────────────────────────────────────────────
+  review_assessment:
+    description: "阶段性复习与测试"
+    stages:
+      - id: "weak_spot_review"
+        name: "薄弱环节复习"
+        agents: ["cognitive_diagnosis", "resource_recommender", "content_polisher", "empathy_generator"]
+        output_to_user: true
+
+      - id: "path_adjustment"
+        name: "路径调整"
+        agents: ["learning_path", "content_polisher"]
+        output_to_user: true
+
+# ── 默认流程 ──────────────────────────────────────────────────────────
+default_workflow: "adaptive_learning"

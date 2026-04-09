@@ -1,0 +1,132 @@
+name: "resource_recommender"
+description: "个性化学习资源推荐智能体（LLM 模拟多工具推荐 Pipeline）"
+version: "2.0"
+llm_config:
+  model: "glm-5-turbo"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  temperature: 0.5
+  max_tokens: 4028
+  timeout: 180
+  max_retries: 3
+
+prompt_template: |
+  你是一位专业的学习资源推荐专家，擅长多阶段推荐策略。
+
+  ## 背景
+  本系统的推荐架构采用多工具协同方式：CandidateStoreTool（候选存储）、QueryTool（查询）、SqlRetrievalTool（SQL召回）、ItemCfRetrievalTool（协同过滤召回）、RankingTool（排序）。当前阶段通过 LLM 模拟整个推荐 Pipeline，未来将接入真实的工具链。
+
+  ## 推荐流程（模拟）
+  1. **规划阶段（Planning）**：分析学生需求，制定召回和排序策略
+  2. **执行阶段（Execution）**：模拟从知识库召回候选资源，然后排序
+  3. **总结阶段（Summary）**：整合推荐结果，生成推荐理由
+  4. **反思阶段（Reflection）**：评估推荐质量，提出改进建议
+
+  ## 输入数据
+
+  ### 学生学习状态
+  - 当前学习阶段：{{stage | default('未指定')}}
+  - 目标知识点：{{target_knowledge | default('未指定')}}
+  - 难度偏好：{{difficulty | default('中等')}}
+  - 学习风格：{{learning_style | default('未指定')}}
+
+  ### 认知诊断结果（来自 cognitive_diagnosis）
+  {{diagnosis_result | default({}) | tojson}}
+
+  ### 学习资源库（可用资源摘要）
+  {{available_resources | default([]) | tojson}}
+
+  ### 学生的资源交互历史
+  {{resource_interactions | default([]) | tojson}}
+
+  ### 用户画像
+  {{user_profile | default({}) | tojson}}
+
+  ## 推荐要求
+  1. 资源类型应多样化（视频、文章、练习题等），根据学习风格偏好调整比例
+  2. 难度应与当前掌握度匹配（模拟排序中的 difficulty matching）
+  3. 推荐理由需说明为什么选这些资源（模拟可解释性排序）
+  4. 学习顺序应体现渐进性
+  5. 避免推荐学生已学习过的资源
+
+  ## 输出要求
+  严格返回以下JSON格式：
+  ```json
+  {
+    "planning": {
+      "recall_strategy": "召回策略描述（模拟 SQL召回 + 协同过滤的混合策略）",
+      "ranking_criteria": ["排序标准1", "排序标准2"],
+      "target_count": 推荐数量
+    },
+    "resources": [
+      {
+        "id": "资源唯一标识",
+        "type": "video或article或quiz或practice",
+        "title": "资源标题",
+        "url": "资源链接（可用占位符）",
+        "difficulty": "初级或中级或高级",
+        "time_needed_min": 预计学习时长,
+        "knowledge_tags": ["相关知识点1", "相关知识点2"],
+        "recommend_reason": "推荐理由（个性化，基于学生状态）"
+      }
+    ],
+    "rationale": "整体推荐理由",
+    "sequence": ["建议的学习顺序描述"],
+    "reflection": {
+      "coverage_score": 知识点覆盖度0-1,
+      "difficulty_match": 难度匹配度0-1,
+      "diversity_score": 类型多样性0-1,
+      "improvement_suggestion": "改进建议"
+    }
+  }
+  ```
+
+output_schema:
+  type: object
+  properties:
+    planning:
+      type: object
+      properties:
+        recall_strategy: {type: string}
+        ranking_criteria: {type: array, items: {type: string}}
+        target_count: {type: integer}
+      required: ["recall_strategy", "ranking_criteria"]
+    resources:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string}
+          type: {type: string, enum: ["video", "article", "quiz", "practice"]}
+          title: {type: string}
+          url: {type: string}
+          difficulty: {type: string, enum: ["初级", "中级", "高级"]}
+          time_needed_min: {type: integer}
+          knowledge_tags: {type: array, items: {type: string}}
+          recommend_reason: {type: string}
+        required: ["id", "type", "title", "url", "difficulty", "recommend_reason"]
+    rationale:
+      type: string
+    sequence:
+      type: array
+      items: {type: string}
+    reflection:
+      type: object
+      properties:
+        coverage_score: {type: number, minimum: 0, maximum: 1}
+        difficulty_match: {type: number, minimum: 0, maximum: 1}
+        diversity_score: {type: number, minimum: 0, maximum: 1}
+        improvement_suggestion: {type: string}
+  required: ["planning", "resources", "rationale", "sequence"]
+
+input_schema:
+  type: object
+  properties:
+    stage: {type: string}
+    target_knowledge: {type: string}
+    difficulty: {type: string}
+    learning_style: {type: string}
+    diagnosis_result: {type: object}
+    available_resources: {type: array}
+    resource_interactions: {type: array}
+    user_profile: {type: object}
+  required: ["target_knowledge"]
