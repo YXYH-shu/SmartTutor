@@ -6,6 +6,8 @@
 # - Internal operations (no output needed) are merged into the same stage
 # - Emotion analysis runs automatically before the decision node (not in stages)
 # - The last agent in each stage should produce user-visible content
+# - knowledge_responder generates natural language content from scratch,
+#   feeding it to downstream content_polisher / empathy_generator
 
 workflows:
   # ── 新用户引导 ─────────────────────────────────────────────────────
@@ -14,12 +16,12 @@ workflows:
     stages:
       - id: "welcome"
         name: "欢迎与情感建立"
-        agents: ["empathy_generator"]
+        agents: ["knowledge_responder", "empathy_generator"]
         output_to_user: true
 
       - id: "diagnosis_and_plan"
         name: "诊断与规划"
-        agents: ["cognitive_diagnosis", "learning_path", "content_polisher"]
+        agents: ["cognitive_diagnosis", "learning_path", "knowledge_responder", "content_polisher"]
         output_to_user: true
 
   # ── 自适应学习（主流程）─────────────────────────────────────────────
@@ -28,12 +30,12 @@ workflows:
     stages:
       - id: "teaching"
         name: "教学讲解"
-        agents: ["cognitive_diagnosis", "resource_recommender", "content_polisher", "empathy_generator"]
+        agents: ["cognitive_diagnosis", "resource_recommender", "knowledge_responder", "content_polisher", "empathy_generator"]
         output_to_user: true
 
       - id: "comprehension_check"
         name: "理解确认"
-        agents: ["cognitive_diagnosis", "empathy_generator"]
+        agents: ["cognitive_diagnosis", "knowledge_responder", "empathy_generator"]
         output_to_user: true
 
   # ── 协作学习 ───────────────────────────────────────────────────────
@@ -42,12 +44,12 @@ workflows:
     stages:
       - id: "buddy_matching"
         name: "学伴匹配"
-        agents: ["study_buddy"]
+        agents: ["study_buddy", "knowledge_responder", "content_polisher"]
         output_to_user: true
 
       - id: "collaboration_guide"
         name: "协作指导"
-        agents: ["learning_path", "empathy_generator"]
+        agents: ["learning_path", "knowledge_responder", "empathy_generator"]
         output_to_user: true
 
   # ── 复习评估 ───────────────────────────────────────────────────────
@@ -56,12 +58,12 @@ workflows:
     stages:
       - id: "weak_spot_review"
         name: "薄弱环节复习"
-        agents: ["cognitive_diagnosis", "resource_recommender", "content_polisher", "empathy_generator"]
+        agents: ["cognitive_diagnosis", "resource_recommender", "knowledge_responder", "content_polisher", "empathy_generator"]
         output_to_user: true
 
       - id: "path_adjustment"
         name: "路径调整"
-        agents: ["learning_path", "content_polisher"]
+        agents: ["learning_path", "knowledge_responder", "content_polisher"]
         output_to_user: true
 
 # ── 默认流程 ──────────────────────────────────────────────────────────

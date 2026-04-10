@@ -96,16 +96,47 @@ async def stream_message(
         db.add(user_msg)
         await db.commit()
 
-    # Run graph
+    # Run graph with step progress streaming
     engine = _get_engine()
-    result = await engine.process_turn(
-        user_id=user_id,
-        conversation_id=conversation_id,
-        user_message=content,
-    )
-    response_text = result.get("response", "")
+    step_queue: asyncio.Queue = asyncio.Queue()
 
-    # Split into sentence-level chunks for streaming effect
+    async def _run_engine() -> dict[str, Any]:
+        try:
+            result = await engine.process_turn(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                user_message=content,
+                step_queue=step_queue,
+            )
+            await step_queue.put({"type": "result", "data": result})
+        except Exception as exc:
+            logger.exception("Graph execution failed")
+            await step_queue.put({"type": "error", "error": str(exc)})
+
+    engine_task = asyncio.create_task(_run_engine())
+
+    # Yield step events while graph is running
+    result: dict[str, Any] = {}
+    while True:
+        item = await step_queue.get()
+        if item["type"] == "step":
+            step_data = json.dumps(
+                {"type": "step", "label": item["label"]}, ensure_ascii=False
+            )
+            yield f"data: {step_data}\n\n"
+        elif item["type"] == "result":
+            result = item["data"]
+            break
+        elif item["type"] == "error":
+            err_data = json.dumps(
+                {"type": "error", "detail": item["error"]}, ensure_ascii=False
+            )
+            yield f"data: {err_data}\n\n"
+            engine_task.cancel()
+            return
+
+    # Stream content chunks
+    response_text = result.get("response", "")
     chunks = _split_response(response_text)
     for chunk in chunks:
         data = json.dumps({"type": "content", "content": chunk}, ensure_ascii=False)

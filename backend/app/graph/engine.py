@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -31,6 +32,12 @@ from app.models.user_profile import UserProfile
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+# Auto-transition mapping: completed_workflow → (next_workflow, first_stage)
+_WORKFLOW_TRANSITIONS = {
+    "onboarding": ("adaptive_learning", "teaching"),
+    "review_assessment": ("adaptive_learning", "teaching"),
+}
 
 
 class TutorGraphEngine:
@@ -85,6 +92,7 @@ class TutorGraphEngine:
         user_id: str,
         conversation_id: str,
         user_message: str,
+        step_queue: asyncio.Queue | None = None,
     ) -> dict[str, Any]:
         """Process one user turn and return the assistant response.
 
@@ -112,7 +120,9 @@ class TutorGraphEngine:
                 workflow_type = conv.workflow_type
             if conv.current_stage:
                 current_stage = conv.current_stage
-        if not user_profile or not user_profile.get("current_level"):
+        if (not conv or not conv.workflow_type) and (
+            not user_profile or not user_profile.get("current_level")
+        ):
             workflow_type = "onboarding"
 
         # 4. Build state: try to resume from checkpoint, otherwise fresh state
@@ -131,10 +141,10 @@ class TutorGraphEngine:
                 "interrupt_reason": None,
                 "emotion_history": [],  # append-only; checkpoint history preserved by operator.add
             }
-            # Allow DB-driven overrides if workflow was explicitly changed externally
-            if workflow_type and workflow_type != state.get("workflow_type"):
+            # Only use DB workflow if checkpoint has none (first-turn edge case)
+            if workflow_type and not state.get("workflow_type"):
                 state["workflow_type"] = workflow_type
-                state["current_stage"] = current_stage
+                state["current_stage"] = current_stage or ""
                 state["stage_counter"] = 0
         else:
             # Fresh state (first turn of conversation)
@@ -155,10 +165,25 @@ class TutorGraphEngine:
                 "interrupt_reason": None,
             }
 
-        # 5. Run the graph
-        result = await self._graph.ainvoke(state, config=config)
+        # 5. Run the graph (stream step progress if queue provided)
+        if step_queue is not None:
+            result = await self._stream_graph_with_steps(state, config, step_queue)
+        else:
+            result = await self._graph.ainvoke(state, config=config)
 
-        # 5. Extract response
+        # 5b. Auto-transition from completed workflows
+        if result.get("decision") == "finish":
+            completed_wf = result.get("workflow_type") or state.get("workflow_type")
+            transition = _WORKFLOW_TRANSITIONS.get(completed_wf)
+            if transition:
+                result["workflow_type"] = transition[0]
+                result["current_stage"] = transition[1]
+                logger.info(
+                    "Auto-transition: %s complete → %s/%s",
+                    completed_wf, transition[0], transition[1],
+                )
+
+        # 6. Extract response
         response_text = result.get("final_response") or "我正在思考中，请稍等..."
         workflow = result.get("workflow_type") or state.get("workflow_type") or ""
         stage = result.get("current_stage", "")
@@ -179,6 +204,59 @@ class TutorGraphEngine:
             "workflow": workflow,
             "stage": stage,
         }
+
+    # ------------------------------------------------------------------
+    # Graph execution helpers
+    # ------------------------------------------------------------------
+
+    async def _stream_graph_with_steps(
+        self,
+        state: TutorState,
+        config: dict,
+        step_queue: asyncio.Queue,
+    ) -> dict[str, Any]:
+        """Run graph via astream(), emitting step labels into *step_queue*.
+
+        After each node finishes we push the label for the *next* step so
+        the user sees "正在进行 xxx" in near-real-time.
+        """
+        NEXT_LABEL: dict[str, str] = {
+            "safety_check": "正在进行情感分析",
+            "emotion_preprocess": "正在进行智能决策",
+            "execute_stage": "正在生成回复",
+        }
+
+        # First step label (before graph starts)
+        await step_queue.put({"type": "step", "label": "正在进行安全检查"})
+
+        async for event in self._graph.astream(
+            state, config=config, stream_mode="updates"
+        ):
+            for node_name, node_output in event.items():
+                if node_name == "decide":
+                    decision = (node_output or {}).get("decision", "finish")
+                    if decision in ("continue_stage", "switch_stage"):
+                        label = "正在执行教学流程"
+                    elif decision == "free_composition":
+                        label = "正在运行智能体"
+                    else:
+                        label = "正在生成回复"
+                    await step_queue.put({"type": "step", "label": label})
+                elif node_name == "execute_agent":
+                    remaining = (node_output or {}).get("next_agents", [])
+                    if remaining:
+                        label = "正在运行智能体"
+                    else:
+                        label = "正在生成回复"
+                    await step_queue.put({"type": "step", "label": label})
+                elif node_name in NEXT_LABEL:
+                    await step_queue.put(
+                        {"type": "step", "label": NEXT_LABEL[node_name]}
+                    )
+
+        # Retrieve final state from checkpointer
+        snapshot = await self._graph.aget_state(config)
+        return snapshot.values if snapshot and snapshot.values else state
 
     # ------------------------------------------------------------------
     # DB helpers

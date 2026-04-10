@@ -142,13 +142,21 @@ class DecisionEngine:
             latest_emotion = last.get("emotion", "未知")
             emotion_intensity = last.get("intensity", "未知")
 
+        # Check if current stage is the last in its workflow
+        is_last_stage = False
+        current_wf = state.get("workflow_type")
+        current_stg = state.get("current_stage")
+        if current_wf and current_stg:
+            is_last_stage = self.get_next_stage(current_wf, current_stg) is None
+
         template = env.from_string(template_str)
         return template.render(
             available_agents=available_agents,
             workflows=self.workflows.get("workflows", {}),
-            current_workflow=state.get("workflow_type"),
-            current_stage=state.get("current_stage"),
+            current_workflow=current_wf,
+            current_stage=current_stg,
             stage_counter=state.get("stage_counter", 0),
+            is_last_stage=is_last_stage,
             latest_emotion=latest_emotion,
             emotion_intensity=emotion_intensity,
             recent_messages=recent,

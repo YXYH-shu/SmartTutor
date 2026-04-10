@@ -112,6 +112,13 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             input_data.setdefault("mastery_rates", mastery_rates)
         # study_buddy template uses 'user_graph' but we store 'knowledge_graph'
         input_data.setdefault("user_graph", input_data.get("knowledge_graph", {}))
+        # Flatten prior agent outputs for knowledge_responder
+        if "resource_recommender" in ctx and isinstance(ctx["resource_recommender"], dict):
+            input_data.setdefault("resource_list", ctx["resource_recommender"])
+        if "study_buddy" in ctx and isinstance(ctx["study_buddy"], dict):
+            input_data.setdefault("buddy_info", ctx["study_buddy"])
+        if "learning_path" in ctx and isinstance(ctx["learning_path"], dict):
+            input_data.setdefault("learning_plan", ctx["learning_path"])
         # Populate learning context from user_profile if available
         profile = input_data.get("user_profile") or state.get("user_profile") or {}
         if isinstance(profile, dict):
@@ -189,6 +196,7 @@ def _extract_text(output: dict[str, Any]) -> str | None:
 
     # Common string output field names across all agents
     for key in (
+        "response_text",
         "transformed_text",
         "empathetic_response",
         "polished_content",

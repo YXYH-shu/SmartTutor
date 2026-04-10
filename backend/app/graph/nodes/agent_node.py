@@ -57,10 +57,25 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
         input_data.setdefault("knowledge_graph", cd.get("knowledge_graph", {}))
         input_data.setdefault("mastery_rates", cd.get("mastery_rates", {}))
     input_data.setdefault("user_graph", input_data.get("knowledge_graph", {}))
+    # Flatten prior agent outputs for knowledge_responder
+    if "resource_recommender" in ctx and isinstance(ctx["resource_recommender"], dict):
+        input_data.setdefault("resource_list", ctx["resource_recommender"])
+    if "study_buddy" in ctx and isinstance(ctx["study_buddy"], dict):
+        input_data.setdefault("buddy_info", ctx["study_buddy"])
+    if "learning_path" in ctx and isinstance(ctx["learning_path"], dict):
+        input_data.setdefault("learning_plan", ctx["learning_path"])
+    # Populate learning context from user_profile
+    input_data.setdefault("user_profile", state.get("user_profile"))
     profile = input_data.get("user_profile") or state.get("user_profile") or {}
     if isinstance(profile, dict):
         input_data.setdefault("current_level", profile.get("current_level", "初级"))
+        input_data.setdefault("weak_points", profile.get("weak_points", []))
         input_data.setdefault("learning_style", profile.get("learning_style"))
+    # Map current_stage → stage for agents that use it
+    input_data.setdefault("stage", state.get("current_stage", "常规对话"))
+    # Set topic from current_message for study_buddy
+    if not input_data.get("topic"):
+        input_data["topic"] = input_data.get("current_message", "未指定")
     # Pass last agent output for downstream agents
     last_output = ctx.get("_last_output")
     if last_output is not None:

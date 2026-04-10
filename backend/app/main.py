@@ -15,6 +15,17 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
 )
 
+# Suppress noisy third-party loggers to WARNING
+for _logger_name in (
+    "httpx",
+    "httpcore",
+    "openai",
+    "langchain_core",
+    "langgraph",
+    "sqlalchemy.engine",
+):
+    logging.getLogger(_logger_name).setLevel(logging.WARNING)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -38,9 +38,13 @@ async def decision_node(state: TutorState) -> dict[str, Any]:
 
     decision = await engine.decide_next_step(dict(state), agents_meta)
 
+    # Strip agents that run as fixed nodes (should never be in agent_sequence)
+    _FIXED_AGENTS = {"safety_monitor", "emotion_analyzer"}
+    agent_seq = [a for a in decision.get("agent_sequence", []) if a not in _FIXED_AGENTS]
+
     updates: dict[str, Any] = {
         "decision": decision["decision"],
-        "next_agents": decision.get("agent_sequence", []),
+        "next_agents": agent_seq,
     }
 
     # Handle workflow/stage transitions
