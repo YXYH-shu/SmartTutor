@@ -9,6 +9,7 @@ interface ChatState {
   isStreaming: boolean;
   streamingContent: string;
   abortController: AbortController | null;
+  currentStep: string | null;
 
   setConversations: (convs: Conversation[]) => void;
   addConversation: (conv: Conversation) => void;
@@ -22,6 +23,7 @@ interface ChatState {
   setLoading: (v: boolean) => void;
   setStreaming: (v: boolean) => void;
   setAbortController: (ac: AbortController | null) => void;
+  setCurrentStep: (step: string | null) => void;
   cancelStream: () => void;
   reset: () => void;
 }
@@ -34,6 +36,7 @@ const initialState = {
   isStreaming: false,
   streamingContent: '',
   abortController: null as AbortController | null,
+  currentStep: null as string | null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -88,6 +91,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       return {
         isStreaming: false,
         streamingContent: '',
+        currentStep: null,
         abortController: null,
         messages: [...s.messages, streamMsg],
       };
@@ -96,13 +100,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   setLoading: (isLoading) => set({ isLoading }),
   setStreaming: (isStreaming) => set({ isStreaming }),
   setAbortController: (abortController) => set({ abortController }),
+  setCurrentStep: (currentStep) => set({ currentStep }),
 
   cancelStream: () => {
     const { abortController, isStreaming } = get();
     if (abortController && isStreaming) {
       abortController.abort();
     }
-    set({ isStreaming: false, streamingContent: '', abortController: null });
+    set({ isStreaming: false, streamingContent: '', currentStep: null, abortController: null });
   },
 
   reset: () => set(initialState),

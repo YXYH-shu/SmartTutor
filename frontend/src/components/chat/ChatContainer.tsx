@@ -15,18 +15,21 @@ import { toast } from 'sonner';
 
 interface Props {
   onRegenerate?: () => void;
+  onQuickAction?: (action: string) => void;
 }
 
-export function ChatContainer({ onRegenerate }: Props) {
+export function ChatContainer({ onQuickAction }: Props) {
   const {
     messages,
     currentConversationId,
     isLoading,
     isStreaming,
     streamingContent,
+    currentStep,
     addMessage,
     updateStreamingContent,
     finishStreaming,
+    setCurrentStep,
     setLoading,
     setAbortController,
     cancelStream,
@@ -46,7 +49,14 @@ export function ChatContainer({ onRegenerate }: Props) {
 
   /* ── Send handler (SSE streaming) ──────────────────────────── */
   const handleSend = async (content: string) => {
-    if (!currentConversationId || !accessToken) return;
+    if (!accessToken) {
+      toast.error('请先登录');
+      return;
+    }
+    if (!currentConversationId) {
+      toast.error('请先选择或创建一个对话');
+      return;
+    }
 
     // Cancel any existing stream before starting a new one
     cancelStream();
@@ -73,6 +83,9 @@ export function ChatContainer({ onRegenerate }: Props) {
         onChunk: (chunk) => {
           updateStreamingContent(chunk);
         },
+        onStep: (label) => {
+          setCurrentStep(label);
+        },
         onDone: () => {
           finishStreaming();
           setLoading(false);
@@ -89,7 +102,14 @@ export function ChatContainer({ onRegenerate }: Props) {
 
   /* ── Regenerate handler ───────────────────────────────────── */
   const handleRegenerate = async () => {
-    if (!currentConversationId || !accessToken) return;
+    if (!accessToken) {
+      toast.error('请先登录');
+      return;
+    }
+    if (!currentConversationId) {
+      toast.error('请先选择或创建一个对话');
+      return;
+    }
 
     // Cancel any existing stream
     cancelStream();
@@ -113,6 +133,9 @@ export function ChatContainer({ onRegenerate }: Props) {
       {
         onChunk: (chunk) => {
           updateStreamingContent(chunk);
+        },
+        onStep: (label) => {
+          setCurrentStep(label);
         },
         onDone: () => {
           finishStreaming();
@@ -147,7 +170,7 @@ export function ChatContainer({ onRegenerate }: Props) {
           {quickActions.map((a) => (
             <button
               key={a.label}
-              onClick={a.onClick}
+              onClick={() => onQuickAction?.(a.action)}
               className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 px-5 py-4 text-sm text-gray-600 transition hover:border-primary-300 hover:bg-primary-50 dark:border-gray-700 dark:text-gray-400 dark:hover:border-primary-600 dark:hover:bg-primary-900/20"
             >
               <a.icon size={22} className="text-primary-500" />
@@ -202,7 +225,7 @@ export function ChatContainer({ onRegenerate }: Props) {
                 <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400" />
               </div>
             </div>
-            <span className="text-sm text-gray-400">正在思考...</span>
+            <span className="text-sm text-gray-400">{currentStep || '正在思考...'}</span>
           </div>
         )}
 
@@ -224,21 +247,21 @@ const quickActions = [
   {
     label: '开始诊断',
     icon: BarChart3,
-    onClick: () => {},
+    action: 'diagnosis',
   },
   {
     label: '制定计划',
     icon: Target,
-    onClick: () => {},
+    action: 'plan',
   },
   {
     label: '找学习伙伴',
     icon: Users,
-    onClick: () => {},
+    action: 'companion',
   },
   {
     label: '复习评估',
     icon: BookOpen,
-    onClick: () => {},
+    action: 'review',
   },
 ];

@@ -80,11 +80,12 @@ export interface EmotionState {
 /* ── SSE Stream ───────────────────────────────────────────────── */
 
 export interface StreamChunk {
-  type: 'content' | 'done' | 'error';
+  type: 'content' | 'done' | 'error' | 'step';
   content?: string;
   workflow?: string;
   stage?: string;
   detail?: string;
+  label?: string;
 }
 
 /* ── Pagination ───────────────────────────────────────────────── */

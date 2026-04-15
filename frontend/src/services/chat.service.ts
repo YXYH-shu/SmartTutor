@@ -1,7 +1,7 @@
 import api from './api';
 import type { Message, StreamChunk, FeedbackRequest } from '@/types';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export const chatService = {
   /**
@@ -27,6 +27,7 @@ export const chatService = {
     accessToken: string,
     callbacks: {
       onChunk: (chunk: string) => void;
+      onStep?: (label: string) => void;
       onDone?: (meta: { workflow?: string; stage?: string }) => void;
       onError?: (err: string) => void;
     },
@@ -77,6 +78,8 @@ export const chatService = {
             const chunk: StreamChunk = JSON.parse(raw);
             if (chunk.type === 'content' && chunk.content) {
               callbacks.onChunk(chunk.content);
+            } else if (chunk.type === 'step') {
+              callbacks.onStep?.(chunk.label || '');
             } else if (chunk.type === 'done') {
               callbacks.onDone?.({
                 workflow: chunk.workflow,
@@ -105,6 +108,7 @@ export const chatService = {
     accessToken: string,
     callbacks: {
       onChunk: (chunk: string) => void;
+      onStep?: (label: string) => void;
       onDone?: (meta: { workflow?: string; stage?: string }) => void;
       onError?: (err: string) => void;
     },
@@ -155,6 +159,8 @@ export const chatService = {
             const chunk: StreamChunk = JSON.parse(raw);
             if (chunk.type === 'content' && chunk.content) {
               callbacks.onChunk(chunk.content);
+            } else if (chunk.type === 'step') {
+              callbacks.onStep?.(chunk.label || '');
             } else if (chunk.type === 'done') {
               callbacks.onDone?.({
                 workflow: chunk.workflow,
