@@ -2,8 +2,8 @@ name: "resource_recommender"
 description: "个性化学习资源推荐智能体（LLM 模拟多工具推荐 Pipeline）"
 version: "2.0"
 llm_config:
-  model: "glm-5-turbo"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  model: "Qwen3.5-35B-A3B"
+  base_url: "http://172.17.43.70:8001/v1/"
   temperature: 0.5
   max_tokens: 4028
   timeout: 180
