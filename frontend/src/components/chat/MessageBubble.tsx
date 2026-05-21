@@ -13,7 +13,8 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import type { Message } from '@/types';
+import type { Message, ThinkingStep } from '@/types';
+import { ThinkingView } from './ThinkingView';
 import { chatService } from '@/services/chat.service';
 import { toast } from 'sonner';
 
@@ -21,12 +22,16 @@ interface Props {
   message: Message;
   isLast?: boolean;
   onRegenerate?: () => void;
+  thinkingSteps?: ThinkingStep[];
 }
 
-export function MessageBubble({ message, isLast, onRegenerate }: Props) {
+export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: Props) {
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(message.feedback || null);
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
+
+  const steps = thinkingSteps || message.thinking_steps || [];
+  const hasThinking = steps.length > 0;
 
   /* ── Handlers ────────────────────────────────────────────── */
   const handleFeedback = async (type: 'up' | 'down') => {
@@ -50,7 +55,7 @@ export function MessageBubble({ message, isLast, onRegenerate }: Props) {
 
   /* ── Render ──────────────────────────────────────────────── */
   return (
-    <div className={cn('flex gap-3 px-4 py-3', isUser ? 'flex-row-reverse' : '')}>
+    <div className={cn('group flex gap-3 px-4 py-3', isUser ? 'flex-row-reverse' : '')}>
       {/* Avatar */}
       <div
         className={cn(
@@ -78,6 +83,14 @@ export function MessageBubble({ message, isLast, onRegenerate }: Props) {
               : 'rounded-msg-ai border border-gray-200 bg-white text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200',
           )}
         >
+          {/* Thinking section (embedded, assistant only) */}
+          {!isUser && hasThinking && (
+            <div className="mb-3">
+              <ThinkingView steps={steps} />
+              <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
+            </div>
+          )}
+
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{

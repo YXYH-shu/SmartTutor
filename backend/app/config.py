@@ -51,6 +51,13 @@ class LangGraphSettings(BaseSettings):
     checkpoint_postgres_url: str = "postgresql+psycopg://tutor:tutor123@localhost:5432/smart_tutor_checkpoint"
 
 
+class TraceSettings(BaseSettings):
+    enabled: bool = True
+    log_path: str = ""  # 空=自动使用 backend/logs/trace.log
+    max_bytes: int = 10 * 1024 * 1024  # 10 MB
+    backup_count: int = 5
+
+
 # ---------------------------------------------------------------------------
 # Root settings
 # ---------------------------------------------------------------------------
@@ -70,6 +77,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
+    trace: TraceSettings = Field(default_factory=TraceSettings)
 
 
 # Singleton – reads .env and env vars directly

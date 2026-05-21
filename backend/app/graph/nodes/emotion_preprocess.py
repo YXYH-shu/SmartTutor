@@ -25,6 +25,11 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
     """
     logger.info("[emotion_preprocess] entering")
 
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER emotion_preprocess", _tid)
+
     messages = state.get("messages", [])
 
     # Build message history (last 10 messages)
@@ -67,6 +72,9 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
         output.get("emotion"),
         output.get("intensity"),
     )
+
+    _trace.debug("[%s] NODE_EXIT  emotion_preprocess emotion=%s intensity=%s",
+                 _tid, output.get("emotion"), output.get("intensity"))
 
     return {
         "context": ctx,

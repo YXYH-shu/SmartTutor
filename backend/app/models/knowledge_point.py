@@ -34,6 +34,12 @@ class KnowledgePoint(Base):
         Float, nullable=True, comment="难度系数 0-1"
     )
     embed: Mapped[str | None] = mapped_column(Text, nullable=True, comment="向量嵌入（JSON）")
+    grade_level: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="适用学段/年级"
+    )
+    cognitive_level: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="认知层次（布鲁姆分类）"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

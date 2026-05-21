@@ -28,6 +28,7 @@ export const chatService = {
     callbacks: {
       onChunk: (chunk: string) => void;
       onStep?: (label: string) => void;
+      onThinking?: (content: string, step: string, label: string) => void;
       onDone?: (meta: { workflow?: string; stage?: string }) => void;
       onError?: (err: string) => void;
     },
@@ -80,6 +81,8 @@ export const chatService = {
               callbacks.onChunk(chunk.content);
             } else if (chunk.type === 'step') {
               callbacks.onStep?.(chunk.label || '');
+            } else if (chunk.type === 'thinking') {
+              callbacks.onThinking?.(chunk.content || '', chunk.step || '', chunk.label || '');
             } else if (chunk.type === 'done') {
               callbacks.onDone?.({
                 workflow: chunk.workflow,
@@ -109,6 +112,7 @@ export const chatService = {
     callbacks: {
       onChunk: (chunk: string) => void;
       onStep?: (label: string) => void;
+      onThinking?: (content: string, step: string, label: string) => void;
       onDone?: (meta: { workflow?: string; stage?: string }) => void;
       onError?: (err: string) => void;
     },
@@ -161,6 +165,8 @@ export const chatService = {
               callbacks.onChunk(chunk.content);
             } else if (chunk.type === 'step') {
               callbacks.onStep?.(chunk.label || '');
+            } else if (chunk.type === 'thinking') {
+              callbacks.onThinking?.(chunk.content || '', chunk.step || '', chunk.label || '');
             } else if (chunk.type === 'done') {
               callbacks.onDone?.({
                 workflow: chunk.workflow,

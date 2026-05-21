@@ -15,6 +15,12 @@ from app.models.learner_interaction import (
     LearnerLearnerRelation,
 )
 from app.models.recommendation import ResourceRecommendation, BuddyRecommendation
+from app.models.concept import Concept
+from app.models.skill import Skill
+from app.models.resource_knowledge import ResourceKnowledge
+from app.models.knowledge_knowledge import KnowledgeKnowledge
+from app.models.concept_knowledge import ConceptKnowledge
+from app.models.skill_knowledge import SkillKnowledge
 
 __all__ = [
     "User",
@@ -31,4 +37,10 @@ __all__ = [
     "LearnerLearnerRelation",
     "ResourceRecommendation",
     "BuddyRecommendation",
+    "Concept",
+    "Skill",
+    "ResourceKnowledge",
+    "KnowledgeKnowledge",
+    "ConceptKnowledge",
+    "SkillKnowledge",
 ]

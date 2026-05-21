@@ -2,12 +2,13 @@ name: "decision"
 description: "智能教育系统决策中枢"
 version: "2.0"
 llm_config:
-  model: "Qwen3.5-35B-A3B"
-  base_url: "http://172.17.43.70:8001/v1/"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.2
   max_tokens: 4028
   timeout: 180
   max_retries: 3
+  thinking: true
 
 prompt_template: |
   你是智能教育系统的**决策中枢**，负责根据当前对话上下文决定下一步应该执行什么操作。
@@ -56,6 +57,11 @@ prompt_template: |
   5. **情感优先级**: 如果用户情感状态为"沮丧"或"焦虑"且intensity > 0.6，empathy_generator 会由流程自动调度，无需特殊处理
 
 
+  ## 安全管线上下文
+  如果 safety_action 为 TRANSFORM，说明用户原始问题已被安全管线改写为教育性内容。
+  此时应优先走 adaptive_learning 的 teaching 阶段，确保转化后的问题能被正确处理。
+  safety_context 中包含 transform_tags（转化标签）和 risk_category（风险类别），可用于调整回复策略。
+
   ## 重要提醒
   - 每次决策都必须重新审视用户最新消息的意图，不要盲目继续当前流程
   - "continue_stage" 仅用于用户意图未发生变化的场景
@@ -92,4 +98,10 @@ output_schema:
 
 input_schema:
   type: object
-  properties: {}
+  properties:
+    safety_action:
+      type: string
+      description: "安全管线动作: SAFE/TRANSFORM/SOFT_BLOCK/HARD_BLOCK/REFERRAL"
+    safety_context:
+      type: object
+      description: "安全管线上下文信息"

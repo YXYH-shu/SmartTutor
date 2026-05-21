@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Conversation, Message } from '@/types';
+import type { Conversation, Message, ThinkingStep } from '@/types';
 
 interface ChatState {
   conversations: Conversation[];
@@ -10,6 +10,8 @@ interface ChatState {
   streamingContent: string;
   abortController: AbortController | null;
   currentStep: string | null;
+  thinkingSteps: ThinkingStep[];
+  thinkingExpanded: boolean;
 
   setConversations: (convs: Conversation[]) => void;
   addConversation: (conv: Conversation) => void;
@@ -24,6 +26,10 @@ interface ChatState {
   setStreaming: (v: boolean) => void;
   setAbortController: (ac: AbortController | null) => void;
   setCurrentStep: (step: string | null) => void;
+  addThinkingStep: (step: ThinkingStep) => void;
+  completeRunningStep: (content: string, step: string, label: string) => void;
+  clearThinking: () => void;
+  toggleThinkingExpanded: () => void;
   cancelStream: () => void;
   reset: () => void;
 }
@@ -37,6 +43,8 @@ const initialState = {
   streamingContent: '',
   abortController: null as AbortController | null,
   currentStep: null as string | null,
+  thinkingSteps: [] as ThinkingStep[],
+  thinkingExpanded: true,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -63,7 +71,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     })),
 
   setCurrentConversation: (id) => {
-    // Cancel any active stream when switching conversations
     get().cancelStream();
     set({ currentConversationId: id, messages: [] });
   },
@@ -81,18 +88,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   finishStreaming: () =>
     set((s) => {
+      // Mark any remaining running steps as completed
+      const finalSteps = s.thinkingSteps.map((step) =>
+        step.status === 'running' ? { ...step, status: 'completed' as const } : step,
+      );
       const streamMsg: Message = {
         id: `stream-${Date.now()}`,
         conversation_id: s.currentConversationId || '',
         role: 'assistant',
         content: s.streamingContent,
         created_at: new Date().toISOString(),
+        thinking_steps: finalSteps.length > 0 ? finalSteps : null,
       };
       return {
         isStreaming: false,
         streamingContent: '',
         currentStep: null,
         abortController: null,
+        thinkingSteps: [],
         messages: [...s.messages, streamMsg],
       };
     }),
@@ -102,12 +115,31 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   setAbortController: (abortController) => set({ abortController }),
   setCurrentStep: (currentStep) => set({ currentStep }),
 
+  addThinkingStep: (step) =>
+    set((s) => ({ thinkingSteps: [...s.thinkingSteps, step] })),
+
+  completeRunningStep: (content, step, label) =>
+    set((s) => {
+      // Find the last running step and update it to completed with content
+      const steps = [...s.thinkingSteps];
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (steps[i].status === 'running') {
+          steps[i] = { ...steps[i], status: 'completed', content, step, label };
+          break;
+        }
+      }
+      return { thinkingSteps: steps };
+    }),
+
+  clearThinking: () => set({ thinkingSteps: [] }),
+  toggleThinkingExpanded: () => set((s) => ({ thinkingExpanded: !s.thinkingExpanded })),
+
   cancelStream: () => {
     const { abortController, isStreaming } = get();
     if (abortController && isStreaming) {
       abortController.abort();
     }
-    set({ isStreaming: false, streamingContent: '', currentStep: null, abortController: null });
+    set({ isStreaming: false, streamingContent: '', currentStep: null, abortController: null, thinkingSteps: [] });
   },
 
   reset: () => set(initialState),

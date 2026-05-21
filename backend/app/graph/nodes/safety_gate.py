@@ -1,8 +1,13 @@
 """Safety gate node – first node in every graph run.
 
-Inspects the latest user message through the safety_monitor agent.
-If the content is unsafe, the transformed text replaces the original
-in the state and a warning is logged.
+Implements a 5-stage safety pipeline:
+1. Risk perception
+2. Intent recognition
+3. Value assessment
+4. Educational guidance (if TRANSFORM)
+5. Problem transformation (if TRANSFORM)
+
+Results are stored in state for downstream routing and agent context.
 """
 
 from __future__ import annotations
@@ -10,25 +15,39 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from app.graph.state import TutorState
-from app.services.agents import get_agent
+from app.services.safety_pipeline import SafetyPipeline
 
 logger = logging.getLogger(__name__)
 
+_pipeline: SafetyPipeline | None = None
+
+
+def _get_pipeline() -> SafetyPipeline:
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = SafetyPipeline()
+    return _pipeline
+
 
 async def safety_gate(state: TutorState) -> dict[str, Any]:
-    """Run safety check on the latest user message.
-
-    Returns partial state updates to be merged by LangGraph.
-    """
+    """Run the 5-stage safety pipeline on the latest user message."""
     logger.info("[safety_gate] entering – conversation=%s", state.get("conversation_id"))
+
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER safety_gate", _tid)
 
     messages = state.get("messages", [])
     if not messages:
         logger.info("[safety_gate] no messages – skipping")
-        return {"context": {**(state.get("context") or {})}}
+        return {
+            "safety_action": "SAFE",
+            "context": {**(state.get("context") or {})},
+        }
 
     # Find the latest HumanMessage
     last_user_msg = None
@@ -38,31 +57,66 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
             break
 
     if not last_user_msg:
-        return {"context": {**(state.get("context") or {})}}
+        return {
+            "safety_action": "SAFE",
+            "context": {**(state.get("context") or {})},
+        }
 
-    agent = get_agent("safety_monitor")
-    result = await agent.execute(
-        input_data={"raw_text": last_user_msg, "user_age": state.get("user_profile", {}).get("age", "未知")},
-        context={
-            "conversation_id": state.get("conversation_id", ""),
-            "user_id": state.get("user_id", ""),
-        },
-    )
+    # Get student grade from user profile
+    profile = state.get("user_profile") or {}
+    student_grade = profile.get("grade_level") or profile.get("current_level") or "未知"
 
-    output = result["output"]
-    ctx = {**(state.get("context") or {})}
-    ctx["safety"] = output
+    # Build conversation context string
+    context_lines = []
+    for msg in messages[:-1]:  # exclude current message
+        role = "user" if getattr(msg, "type", "") == "human" else "assistant"
+        content = getattr(msg, "content", "")
+        if content:
+            context_lines.append(f"{role}: {content}")
+    conversation_context = "\n".join(context_lines[-6:])  # last 6 messages
 
-    # If unsafe, replace the user message with the transformed version
-    updates: dict[str, Any] = {"context": ctx}
-    if not output.get("is_safe", True):
-        logger.warning(
-            "[safety_gate] unsafe content detected (risk=%s): %s",
-            output.get("risk_level"),
-            output.get("education_note", "")[:100],
+    try:
+        pipeline = _get_pipeline()
+        result = await pipeline.execute(
+            query=last_user_msg,
+            student_grade=student_grade,
+            conversation_context=conversation_context,
         )
-        # Replace the last human message content
-        updates["messages"] = [HumanMessage(content=output.get("transformed_text", last_user_msg))]
+    except Exception:
+        logger.error("[safety_gate] pipeline failed – defaulting to SAFE", exc_info=True)
+        return {
+            "safety_action": "SAFE",
+            "context": {**(state.get("context") or {})},
+        }
 
-    logger.info("[safety_gate] done – is_safe=%s", output.get("is_safe", True))
+    updates: dict[str, Any] = {
+        "safety_action": result.action,
+        "safety_context": result.safety_context,
+    }
+
+    ctx = {**(state.get("context") or {})}
+    ctx["safety"] = result.safety_context or {}
+
+    if result.action == "SAFE":
+        logger.info("[safety_gate] content is safe")
+        updates["context"] = ctx
+
+    elif result.action == "TRANSFORM":
+        logger.info(
+            "[safety_gate] transforming query (risk=%s)",
+            result.safety_context.get("risk_category") if result.safety_context else None,
+        )
+        # Replace the user message with the transformed version
+        updates["messages"] = [HumanMessage(content=result.transformed_query)]
+        updates["context"] = ctx
+
+    elif result.action in ("SOFT_BLOCK", "HARD_BLOCK", "REFERRAL"):
+        logger.warning(
+            "[safety_gate] blocking: action=%s",
+            result.action,
+        )
+        updates["safety_blocked_response"] = result.blocked_response
+        updates["context"] = ctx
+
+    _trace.debug("[%s] NODE_EXIT  safety_gate safety_action=%s", _tid, result.action)
     return updates

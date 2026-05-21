@@ -33,6 +33,9 @@ class LearningResource(Base):
         JSON, nullable=True, comment="覆盖知识点ID及权重"
     )
     embed: Mapped[str | None] = mapped_column(Text, nullable=True, comment="向量嵌入（JSON）")
+    full_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="满分分值（题目适用）"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

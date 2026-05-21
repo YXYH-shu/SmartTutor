@@ -2,12 +2,13 @@ name: "safety_monitor"
 description: "安全监测与教育引导智能体"
 version: "1.0"
 llm_config:
-  model: "Qwen3.5-35B-A3B"
-  base_url: "http://172.17.43.70:8001/v1/"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.3
   max_tokens: 4028
   timeout: 60
   max_retries: 2
+  thinking: false
 
 prompt_template: |
   你是一位专业的安全教育专家，负责审查学生在学习平台上的输入内容。

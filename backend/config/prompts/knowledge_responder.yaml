@@ -2,12 +2,13 @@ name: "knowledge_responder"
 description: "知识回复生成智能体，基于用户消息和上下文生成自然语言回复"
 version: "1.0"
 llm_config:
-  model: "Qwen3.5-35B-A3B"
-  base_url: "http://172.17.43.70:8001/v1/"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.7
   max_tokens: 4028
   timeout: 120
   max_retries: 3
+  thinking: false
 
 prompt_template: |
   你是一位知识丰富、善于表达的智能教育助手。你的任务是根据用户的问题和当前上下文，生成一段自然、连贯、有帮助的回复。

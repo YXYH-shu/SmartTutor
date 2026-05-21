@@ -48,3 +48,8 @@ class TutorState(TypedDict):
     final_response: Optional[str]         # text shown to the user
     requires_user_input: bool             # should the graph pause?
     interrupt_reason: Optional[str]       # why it paused (e.g. "need clarification")
+
+    # ── Safety pipeline ──────────────────────────────────────────────
+    safety_action: Optional[str]           # SAFE/TRANSFORM/SOFT_BLOCK/HARD_BLOCK/REFERRAL
+    safety_context: Optional[dict]         # 安全管线中间结果
+    safety_blocked_response: Optional[str] # 拦截时的预设回复

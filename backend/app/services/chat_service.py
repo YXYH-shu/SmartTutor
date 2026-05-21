@@ -124,6 +124,12 @@ async def stream_message(
                 {"type": "step", "label": item["label"]}, ensure_ascii=False
             )
             yield f"data: {step_data}\n\n"
+        elif item["type"] == "thinking":
+            thinking_data = json.dumps(
+                {"type": "thinking", "content": item.get("content", ""), "step": item.get("step", ""), "label": item.get("label", "")},
+                ensure_ascii=False,
+            )
+            yield f"data: {thinking_data}\n\n"
         elif item["type"] == "result":
             result = item["data"]
             break

@@ -15,6 +15,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
 )
 
+# Trace logger — file-only, separate from console
+if settings.trace.enabled:
+    from app.services.trace_logger import setup_trace_logger
+    setup_trace_logger(
+        log_path=settings.trace.log_path,
+        max_bytes=settings.trace.max_bytes,
+        backup_count=settings.trace.backup_count,
+    )
+
 # Suppress noisy third-party loggers to WARNING
 for _logger_name in (
     "httpx",

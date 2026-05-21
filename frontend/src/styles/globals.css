@@ -85,6 +85,19 @@
   }
 }
 
+@keyframes progress {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-progress {
+  animation: progress 1.5s ease-in-out infinite;
+}
+
 /* ── Skeleton loader ─────────────────────────────────────────── */
 .skeleton {
   @apply animate-pulse rounded bg-gray-200 dark:bg-gray-700;

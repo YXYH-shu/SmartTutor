@@ -40,6 +40,11 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
 
     logger.info("[stage_executor] workflow=%s stage=%s", wf_name, stage_id)
 
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER stage_executor workflow=%s stage=%s", _tid, wf_name, stage_id)
+
     # Resolve stage definition
     if stage_id:
         stage_def = engine.get_stage(wf_name, stage_id)
@@ -70,7 +75,20 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
     ctx = {**(state.get("context") or {})}
     last_output: dict[str, Any] | None = None
 
+    # Step queue for SSE streaming – read from ContextVar, never from state
+    import json as _json
+    from app.graph._stream_ctx import step_queue_var, agent_labels_var
+
+    _step_queue = step_queue_var.get()
+    _agent_labels: dict[str, str] = agent_labels_var.get() or {}
+
     for name in agent_names:
+        agent_label = _agent_labels.get(name, name)
+
+        # Emit step event before agent runs
+        if _step_queue is not None:
+            await _step_queue.put({"type": "step", "label": f"正在运行{agent_label}"})
+
         logger.info("[stage_executor] running agent: %s", name)
         agent = get_agent(name)
 
@@ -90,7 +108,7 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             input_data["current_message"] = getattr(messages[-1], "content", "")
 
         # Pass along specific context keys agents expect
-        for key in ("user_profile", "emotion_state", "raw_response", "knowledge_graph"):
+        for key in ("user_profile", "emotion_state", "raw_response", "knowledge_graph", "safety_context"):
             if key in ctx and key not in input_data:
                 input_data[key] = ctx[key]
 
@@ -108,8 +126,17 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             for ks in cd.get("knowledge_states", []):
                 skill = ks.get("skill_id") or ks.get("skill_name", "")
                 if skill:
-                    mastery_rates[skill] = ks.get("probability_correct", 0)
+                    mastery_rates[skill] = ks.get("mastery_percent", ks.get("probability_correct", 0))
             input_data.setdefault("mastery_rates", mastery_rates)
+            # Pass structured knowledge graph from diagnosis to downstream agents
+            kg = cd.get("knowledge_graph")
+            if kg and isinstance(kg, dict):
+                input_data.setdefault("knowledge_graph", kg)
+        # Pass safety context from safety pipeline to downstream agents
+        if "safety_context" in ctx and isinstance(ctx["safety_context"], dict):
+            input_data["safety_context"] = ctx["safety_context"]
+            input_data["transform_tags"] = ctx["safety_context"].get("transform_tags", [])
+            input_data["risk_category"] = ctx["safety_context"].get("risk_category")
         # study_buddy template uses 'user_graph' but we store 'knowledge_graph'
         input_data.setdefault("user_graph", input_data.get("knowledge_graph", {}))
         # Flatten prior agent outputs for knowledge_responder
@@ -160,6 +187,19 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         ctx["_last_output"] = output
         last_output = output
 
+        # Emit thinking event after agent completes
+        if _step_queue is not None:
+            try:
+                thinking_payload = {"agent": agent_label, "agent_output": output}
+                await _step_queue.put({
+                    "type": "thinking",
+                    "content": _json.dumps(thinking_payload, ensure_ascii=False, default=str),
+                    "step": name,
+                    "label": agent_label,
+                })
+            except Exception:
+                logger.debug("Failed to emit thinking event for %s", name, exc_info=True)
+
         logger.info("[stage_executor] agent %s done", name)
 
     # If stage outputs to user, set final_response from the last agent
@@ -187,6 +227,8 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         updates["stage_counter"] = 0
 
     logger.info("[stage_executor] done – has_response=%s", "final_response" in updates)
+    _trace.debug("[%s] NODE_EXIT  stage_executor has_response=%s",
+                 _tid, "final_response" in updates)
     return updates
 
 
@@ -196,6 +238,9 @@ def _extract_text(output: dict[str, Any]) -> str | None:
 
     # Common string output field names across all agents
     for key in (
+        "recommendation_text",
+        "topic_analysis",
+        "planning_rationale",
         "response_text",
         "transformed_text",
         "empathetic_response",

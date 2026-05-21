@@ -59,6 +59,13 @@ export interface ConversationCreate {
 
 /* ── Message ──────────────────────────────────────────────────── */
 
+export interface ThinkingStep {
+  step: string;
+  label: string;
+  content: string;
+  status?: 'running' | 'completed';
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -69,6 +76,7 @@ export interface Message {
   metadata?: Record<string, unknown> | null;
   created_at: string;
   feedback?: 'up' | 'down' | null;
+  thinking_steps?: ThinkingStep[] | null;
 }
 
 export interface EmotionState {
@@ -80,12 +88,14 @@ export interface EmotionState {
 /* ── SSE Stream ───────────────────────────────────────────────── */
 
 export interface StreamChunk {
-  type: 'content' | 'done' | 'error' | 'step';
+  type: 'content' | 'done' | 'error' | 'step' | 'thinking';
   content?: string;
   workflow?: string;
   stage?: string;
   detail?: string;
   label?: string;
+  step?: string;
+  thinking_steps?: ThinkingStep[] | null;
 }
 
 /* ── Pagination ───────────────────────────────────────────────── */

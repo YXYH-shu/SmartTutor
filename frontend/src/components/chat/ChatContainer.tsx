@@ -5,9 +5,11 @@ import {
   Users,
   BarChart3,
   Sparkles,
+  Bot,
 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
+import { ThinkingView } from './ThinkingView';
 import { useChatStore } from '@/stores/chatStore';
 import { useAuthStore } from '@/stores/authStore';
 import { chatService } from '@/services/chat.service';
@@ -26,10 +28,14 @@ export function ChatContainer({ onQuickAction }: Props) {
     isStreaming,
     streamingContent,
     currentStep,
+    thinkingSteps,
     addMessage,
     updateStreamingContent,
     finishStreaming,
     setCurrentStep,
+    addThinkingStep,
+    completeRunningStep,
+    clearThinking,
     setLoading,
     setAbortController,
     cancelStream,
@@ -40,7 +46,7 @@ export function ChatContainer({ onQuickAction }: Props) {
   /* ── Auto-scroll ──────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, thinkingSteps]);
 
   /* ── Cancel stream on unmount ────────────────────────────── */
   useEffect(() => {
@@ -85,6 +91,10 @@ export function ChatContainer({ onQuickAction }: Props) {
         },
         onStep: (label) => {
           setCurrentStep(label);
+          addThinkingStep({ content: '', step: '', label, status: 'running' });
+        },
+        onThinking: (content, step, label) => {
+          completeRunningStep(content, step, label);
         },
         onDone: () => {
           finishStreaming();
@@ -136,6 +146,10 @@ export function ChatContainer({ onQuickAction }: Props) {
         },
         onStep: (label) => {
           setCurrentStep(label);
+          addThinkingStep({ content: '', step: '', label, status: 'running' });
+        },
+        onThinking: (content, step, label) => {
+          completeRunningStep(content, step, label);
         },
         onDone: () => {
           finishStreaming();
@@ -211,21 +225,39 @@ export function ChatContainer({ onQuickAction }: Props) {
               content: streamingContent || ' ',
               created_at: new Date().toISOString(),
             }}
+            thinkingSteps={thinkingSteps.length > 0 ? thinkingSteps : undefined}
             isLast
           />
         )}
 
-        {/* Loading dots */}
+        {/* Loading / Progressive thinking */}
         {isLoading && !isStreaming && (
-          <div className="flex items-center gap-3 px-4 py-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
-              <div className="flex gap-1">
-                <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.32s]" />
-                <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.16s]" />
-                <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400" />
-              </div>
+          <div className="flex gap-3 px-4 py-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
+              <Bot size={16} />
             </div>
-            <span className="text-sm text-gray-400">{currentStep || '正在思考...'}</span>
+            <div className="min-w-0 max-w-[75%]">
+              {thinkingSteps.length > 0 ? (
+                <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+                  <ThinkingView steps={thinkingSteps} />
+                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-400" />
+                    {currentStep || '正在思考...'}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
+                    <div className="flex gap-1">
+                      <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.32s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.16s]" />
+                      <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400" />
+                    </div>
+                  </div>
+                  <span className="text-sm text-gray-400">{currentStep || '正在思考...'}</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

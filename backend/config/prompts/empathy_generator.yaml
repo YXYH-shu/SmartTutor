@@ -2,18 +2,19 @@ name: "empathy_generator"
 description: "共情回复生成与心理支持智能体"
 version: "1.0"
 llm_config:
-  model: "Qwen3.5-35B-A3B"
-  base_url: "http://172.17.43.70:8001/v1/"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.6
   max_tokens: 4028
-  timeout: 60
+  timeout: 120
   max_retries: 2
+  thinking: false
 
 prompt_template: |
   你是一位富有同理心的教育心理辅导专家，擅长在教学中融入共情和情感支持。
 
   ## 任务
-  将原始教学内容转化为具有共情力的回复，使学生感到被理解和支持。
+  将原始教学内容融入一部分的共情属性回复，使学生感到被理解和支持，同时，你不能扭曲和修改原始回复中的事实和信息。
 
   ## 原始回复
   {{raw_response}}
@@ -26,12 +27,6 @@ prompt_template: |
 
   ## 教育场景
   {{scenario | default('常规辅导')}}
-
-  ## 共情原则
-  1. 先回应情感，再传递知识
-  2. 用鼓励性语言替代批评性表达
-  3. 承认困难是正常的，降低焦虑感
-  4. 保持温暖但不失专业的语气
 
   ## 输出要求
   严格返回以下JSON格式：

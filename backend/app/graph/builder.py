@@ -29,6 +29,14 @@ from app.graph.state import TutorState
 logger = logging.getLogger(__name__)
 
 
+def _route_after_safety(state: TutorState) -> str:
+    """Route after safety check: block actions bypass the rest of the graph."""
+    action = state.get("safety_action")
+    if action in ("HARD_BLOCK", "SOFT_BLOCK", "REFERRAL"):
+        return "assemble_response"
+    return "emotion_preprocess"
+
+
 def _route_after_decide(state: TutorState) -> str:
     """Conditional edge after the decision node."""
     decision = state.get("decision", "finish")
@@ -79,7 +87,14 @@ def build_tutor_graph(checkpointer: Any | None = None) -> StateGraph:
 
     # ── Edges ────────────────────────────────────────────────────────
     graph.set_entry_point("safety_check")
-    graph.add_edge("safety_check", "emotion_preprocess")
+    graph.add_conditional_edges(
+        "safety_check",
+        _route_after_safety,
+        {
+            "emotion_preprocess": "emotion_preprocess",
+            "assemble_response": "assemble_response",
+        },
+    )
     graph.add_edge("emotion_preprocess", "decide")
 
     graph.add_conditional_edges(

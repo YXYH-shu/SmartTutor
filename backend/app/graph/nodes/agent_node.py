@@ -24,12 +24,21 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
     next_agents = list(state.get("next_agents", []))
     ctx = {**(state.get("context") or {})}
 
+    # Strip runtime-only objects before they leak into input_data / DB
+    ctx.pop("_step_queue", None)
+    ctx.pop("_agent_labels", None)
+
     if not next_agents:
         logger.warning("[agent_node] no agents in queue – nothing to execute")
         return {"context": ctx, "next_agents": []}
 
     agent_name = next_agents.pop(0)
     logger.info("[agent_node] executing agent: %s (queue remaining: %s)", agent_name, next_agents)
+
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER agent_node agent=%s", _tid, agent_name)
 
     agent = get_agent(agent_name)
 
@@ -54,8 +63,14 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
         input_data.setdefault("emotion_state", ctx["emotion_analyzer"])
     if "cognitive_diagnosis" in ctx and isinstance(ctx["cognitive_diagnosis"], dict):
         cd = ctx["cognitive_diagnosis"]
+        input_data.setdefault("diagnosis_result", cd)
         input_data.setdefault("knowledge_graph", cd.get("knowledge_graph", {}))
-        input_data.setdefault("mastery_rates", cd.get("mastery_rates", {}))
+        mastery_rates = {}
+        for ks in cd.get("knowledge_states", []):
+            skill = ks.get("skill_id") or ks.get("skill_name", "")
+            if skill:
+                mastery_rates[skill] = ks.get("mastery_percent", ks.get("probability_correct", 0))
+        input_data.setdefault("mastery_rates", mastery_rates)
     input_data.setdefault("user_graph", input_data.get("knowledge_graph", {}))
     # Flatten prior agent outputs for knowledge_responder
     if "resource_recommender" in ctx and isinstance(ctx["resource_recommender"], dict):
@@ -72,7 +87,19 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
         input_data.setdefault("weak_points", profile.get("weak_points", []))
         input_data.setdefault("learning_style", profile.get("learning_style"))
     # Map current_stage → stage for agents that use it
-    input_data.setdefault("stage", state.get("current_stage", "常规对话"))
+    input_data.setdefault("stage", state.get("current_stage", "未指定"))
+    # Set target_knowledge from weak points or current topic
+    if not input_data.get("target_knowledge"):
+        weak = input_data.get("weak_points", [])
+        if weak:
+            input_data["target_knowledge"] = weak[0]
+        else:
+            input_data["target_knowledge"] = "未指定"
+    # Pass safety context from safety pipeline to downstream agents
+    if "safety_context" in ctx and isinstance(ctx["safety_context"], dict):
+        input_data["safety_context"] = ctx["safety_context"]
+        input_data["transform_tags"] = ctx["safety_context"].get("transform_tags", [])
+        input_data["risk_category"] = ctx["safety_context"].get("risk_category")
     # Set topic from current_message for study_buddy
     if not input_data.get("topic"):
         input_data["topic"] = input_data.get("current_message", "未指定")
@@ -99,4 +126,5 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
     ctx["_last_output"] = result["output"]
 
     logger.info("[agent_node] %s done – latency=%dms", agent_name, result.get("latency_ms", 0))
+    _trace.debug("[%s] NODE_EXIT  agent_node agent=%s", _tid, agent_name)
     return {"context": ctx, "next_agents": next_agents}

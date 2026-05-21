@@ -44,9 +44,25 @@ class CognitiveDiagnosisAgent(BaseAgent):
                 existing = profile.knowledge_graph or {}
                 for ks in knowledge_states:
                     skill_id = ks.get("skill_id") or ks.get("skill_name", "")
-                    prob = ks.get("probability_correct", 0)
+                    mastery = ks.get("mastery_percent", "0%")
+                    if isinstance(mastery, str):
+                        try:
+                            prob = int(mastery.replace("%", "")) / 100.0
+                        except ValueError:
+                            prob = 0.0
+                    else:
+                        prob = float(mastery) if mastery else 0.0
                     existing[skill_id] = prob
                 profile.knowledge_graph = existing
+
+            # Persist structured knowledge graph from diagnosis output
+            kg_output = output.get("knowledge_graph")
+            if kg_output and isinstance(kg_output, dict):
+                # Store as a separate field for downstream agents
+                existing = profile.knowledge_graph or {}
+                if isinstance(existing, dict):
+                    existing["_graph"] = kg_output
+                    profile.knowledge_graph = existing
 
             # Update weak points
             weak = output.get("weak_points", [])

@@ -33,6 +33,11 @@ async def decision_node(state: TutorState) -> dict[str, Any]:
     logger.info("[decision_node] entering – workflow=%s stage=%s",
                 state.get("workflow_type"), state.get("current_stage"))
 
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER decision_node", _tid)
+
     engine = _get_engine()
     agents_meta = list_agents()
 
@@ -103,4 +108,5 @@ async def decision_node(state: TutorState) -> dict[str, Any]:
         decision["decision"],
         updates.get("next_agents", []),
     )
+    _trace.debug("[%s] NODE_EXIT  decision_node decision=%s", _tid, decision["decision"])
     return updates

@@ -45,6 +45,7 @@ class UserProfile(Base):
     last_diagnosis: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
+    grade_level: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

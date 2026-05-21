@@ -49,6 +49,18 @@ class LearnerResourceInteraction(Base):
     feedback_score: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="反馈评分 0-5"
     )
+    result_type: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="结果类型：ANSWER/VIEW/INTERACTION"
+    )
+    result_detail: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="结果详情"
+    )
+    is_correct: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, comment="是否正确（答题适用）"
+    )
+    score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="得分"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
@@ -71,6 +83,9 @@ class LearnerKnowledgeInteraction(Base):
     )
     learn_score: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="掌握度评分 0-1"
+    )
+    algorithm_version: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="诊断算法版本号"
     )
 
     created_at: Mapped[datetime] = mapped_column(

@@ -28,6 +28,21 @@ async def response_assembler(state: TutorState) -> dict[str, Any]:
     """
     logger.info("[response_assembler] entering")
 
+    from app.services.trace_logger import get_trace_logger
+    _trace = get_trace_logger()
+    _tid = (state.get("context") or {}).get("_trace_id", "no-trace")
+    _trace.debug("[%s] NODE_ENTER response_assembler", _tid)
+
+    # Check for safety-blocked response first
+    blocked = state.get("safety_blocked_response")
+    if blocked:
+        logger.info("[response_assembler] using safety-blocked response")
+        return {
+            "final_response": blocked,
+            "messages": [AIMessage(content=blocked)],
+            "requires_user_input": True,
+        }
+
     final = state.get("final_response")
 
     if not final:
@@ -39,6 +54,7 @@ async def response_assembler(state: TutorState) -> dict[str, Any]:
             logger.warning("[response_assembler] no final_response – using fallback")
 
     logger.info("[response_assembler] done – response length=%d", len(final))
+    _trace.debug("[%s] NODE_EXIT  response_assembler response_length=%d", _tid, len(final))
     return {
         "final_response": final,
         "messages": [AIMessage(content=final)],

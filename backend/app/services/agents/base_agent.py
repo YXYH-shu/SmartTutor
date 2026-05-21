@@ -134,12 +134,17 @@ class BaseAgent(abc.ABC):
             temperature=llm_cfg.get("temperature", 0.7),
             max_tokens=llm_cfg.get("max_tokens"),  # None → uses client default
             response_format="json",
+            thinking=llm_cfg.get("thinking", False),
         )
 
-        # 4. Validate JSON output
+        # 4. Validate JSON output – use raw content as fallback if validation fails
         raw_content = llm_result["content"]
         if self.output_schema:
-            validated = await self.llm.validate_json_response(raw_content, self.output_schema)
+            try:
+                validated = await self.llm.validate_json_response(raw_content, self.output_schema)
+            except (ValueError, Exception) as exc:
+                logger.warning("JSON validation failed for agent %s: %s – using raw content", self.name, exc)
+                validated = raw_content if isinstance(raw_content, dict) else {}
         else:
             validated = raw_content if isinstance(raw_content, dict) else {}
 
