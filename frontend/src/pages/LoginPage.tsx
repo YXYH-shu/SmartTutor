@@ -32,21 +32,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#09090b] animate-fade-in">
       {/* Left – illustration */}
-      <div className="hidden flex-1 items-center justify-center bg-gradient-to-br from-primary-50 to-white p-12 lg:flex dark:from-gray-900 dark:to-gray-950">
-        <div className="max-w-md text-center">
-          <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-3xl bg-primary-500 shadow-lg shadow-primary-200">
+      <div className="hidden flex-1 items-center justify-center p-12 relative overflow-hidden lg:flex">
+        {/* Subtle blue glow blobs */}
+        <div className="absolute -top-32 -left-32 h-[500px] w-[500px] rounded-full bg-primary-600/8 blur-[120px]" />
+        <div className="absolute -bottom-40 -right-20 h-96 w-96 rounded-full bg-primary-400/5 blur-[100px]" />
+        <div className="absolute top-1/2 left-1/3 h-72 w-72 rounded-full bg-indigo-500/4 blur-[80px]" />
+
+        <div className="max-w-md text-center relative z-10">
+          <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-lg glow-primary">
             <div className="flex">
-              <BookOpen size={40} className="text-white" />
-              <Lightbulb size={24} className="-ml-2 mt-5 text-yellow-300" />
+              <BookOpen size={32} className="text-white" />
+              <Lightbulb size={20} className="-ml-1.5 mt-4 text-primary-200" />
             </div>
           </div>
-          <h1 className="mb-3 text-3xl font-bold text-gray-800 dark:text-gray-100">
+          <h1 className="font-heading mb-3 text-4xl tracking-tight text-white">
             智慧导师
           </h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            AI 驱动的个性化教育平台，让每个学生都获得最适合的学习体验
+          <p className="text-gray-500 leading-relaxed">
+            AI 驱动的个性化教育平台<br />让每个学生都获得最适合的学习体验
           </p>
         </div>
       </div>
@@ -54,7 +59,7 @@ export default function LoginPage() {
       {/* Right – form */}
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h2 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h2 className="font-heading mb-1 text-2xl tracking-tight text-white">
             欢迎回来
           </h2>
           <p className="mb-8 text-gray-500">登录以继续你的学习之旅</p>
@@ -77,7 +82,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPwd(!showPwd)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-500 hover:text-gray-300"
                 >
                   {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -87,7 +92,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-primary-500 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600 active:scale-[0.98] disabled:opacity-50"
+              className="w-full rounded-xl bg-primary-600 hover:bg-primary-500 py-2.5 text-sm font-medium text-white transition-all duration-200 active:scale-[0.98] disabled:opacity-50 shadow-sm glow-primary-sm"
             >
               {loading ? '登录中...' : '登 录'}
             </button>
@@ -97,7 +102,7 @@ export default function LoginPage() {
             还没有账号？{' '}
             <Link
               to="/register"
-              className="font-medium text-primary-500 hover:text-primary-600"
+              className="font-medium text-primary-400 hover:text-primary-300 transition-colors"
             >
               去注册
             </Link>
@@ -107,8 +112,6 @@ export default function LoginPage() {
     </div>
   );
 }
-
-/* ── Reusable input ──────────────────────────────────────────── */
 
 function InputField({
   icon,
@@ -126,14 +129,14 @@ function InputField({
   suffix?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-gray-300 bg-gray-50 px-3 py-2.5 transition focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-600 dark:bg-gray-800">
-      <span className="text-gray-400">{icon}</span>
+    <div className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 transition-all duration-200 focus-within:border-primary-500/40 focus-within:shadow-[0_0_12px_rgba(59,130,246,0.08)]">
+      <span className="text-gray-500">{icon}</span>
       <input
         type={type}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-200"
+        className="flex-1 bg-transparent text-sm text-gray-200 outline-none placeholder:text-gray-600"
       />
       {suffix}
     </div>

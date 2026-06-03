@@ -33,7 +33,6 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
   const steps = thinkingSteps || message.thinking_steps || [];
   const hasThinking = steps.length > 0;
 
-  /* ── Handlers ────────────────────────────────────────────── */
   const handleFeedback = async (type: 'up' | 'down') => {
     const newFb = feedback === type ? null : type;
     setFeedback(newFb);
@@ -53,16 +52,15 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
     setTimeout(() => setCopied(false), 2000);
   };
 
-  /* ── Render ──────────────────────────────────────────────── */
   return (
-    <div className={cn('group flex gap-3 px-4 py-3', isUser ? 'flex-row-reverse' : '')}>
+    <div className={cn('group flex gap-3 px-6 py-4 animate-fade-in-up', isUser ? 'flex-row-reverse' : '')}>
       {/* Avatar */}
       <div
         className={cn(
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
           isUser
             ? 'bg-primary-600 text-white'
-            : 'bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400',
+            : 'bg-primary-500/10 text-primary-400',
         )}
       >
         {isUser ? <UserIcon size={16} /> : <Bot size={16} />}
@@ -77,17 +75,16 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
       >
         <div
           className={cn(
-            'prose prose-sm dark:prose-invert max-w-none rounded-2xl px-4 py-3',
+            'prose prose-sm prose-invert max-w-none rounded-2xl',
             isUser
-              ? 'rounded-msg-user bg-primary-600 text-white prose-p:text-white prose-code:text-primary-100'
-              : 'rounded-msg-ai border border-gray-200 bg-white text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200',
+              ? 'bg-primary-600 text-white px-5 py-3.5 prose-p:text-white/95 prose-code:text-primary-100'
+              : 'border border-white/[0.06] bg-[#18181b] text-gray-200 px-5 py-4',
           )}
         >
-          {/* Thinking section (embedded, assistant only) */}
           {!isUser && hasThinking && (
             <div className="mb-3">
               <ThinkingView steps={steps} />
-              <div className="my-2 border-t border-gray-100 dark:border-gray-700" />
+              <div className="my-2 border-t border-white/[0.06]" />
             </div>
           )}
 
@@ -100,7 +97,7 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                 if (match) {
                   return (
                     <div className="relative my-2 overflow-hidden rounded-lg">
-                      <div className="flex items-center justify-between bg-gray-900 px-3 py-1.5 text-xs text-gray-400">
+                      <div className="flex items-center justify-between bg-black/40 px-3 py-1.5 text-xs text-gray-500">
                         <span>{match[1]}</span>
                         <button
                           onClick={() => navigator.clipboard.writeText(codeStr)}
@@ -113,7 +110,7 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                         style={oneDark}
                         language={match[1]}
                         PreTag="div"
-                        customStyle={{ margin: 0, borderRadius: 0 }}
+                        customStyle={{ margin: 0, borderRadius: 0, background: '#0d0d11' }}
                       >
                         {codeStr}
                       </SyntaxHighlighter>
@@ -155,15 +152,14 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                 icon={<RefreshCw size={14} />}
               />
             )}
-            <span className="ml-2 text-xs text-gray-400">
+            <span className="ml-2 text-xs text-gray-500">
               {formatTime(message.created_at)}
             </span>
           </div>
         )}
 
-        {/* User timestamp */}
         {isUser && (
-          <p className="mt-1 text-right text-xs text-gray-400">
+          <p className="mt-1 text-right text-xs text-gray-500">
             {formatTime(message.created_at)}
           </p>
         )}
@@ -171,8 +167,6 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
     </div>
   );
 }
-
-/* ── Sub-components ────────────────────────────────────────── */
 
 function ActionButton({
   icon,
@@ -187,18 +181,16 @@ function ActionButton({
     <button
       onClick={onClick}
       className={cn(
-        'rounded-md p-1 transition',
+        'rounded-lg p-1 transition-all duration-200',
         active
-          ? 'text-primary-500'
-          : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700',
+          ? 'text-primary-400'
+          : 'text-gray-500 hover:text-primary-400 hover:bg-white/[0.04]',
       )}
     >
       {icon}
     </button>
   );
 }
-
-/* ── Helpers ────────────────────────────────────────────────── */
 
 function formatTime(iso: string) {
   const d = new Date(iso);

@@ -46,3 +46,4 @@ Thumbs.db
 
 # Build artifacts
 package-lock.json
+.gstack/

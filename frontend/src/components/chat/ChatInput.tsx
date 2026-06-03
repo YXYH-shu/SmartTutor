@@ -12,7 +12,6 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  /* ── Auto-resize textarea ────────────────────────────────── */
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -20,7 +19,6 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [value]);
 
-  /* ── Key handlers ────────────────────────────────────────── */
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -33,13 +31,12 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
     if (!trimmed || disabled) return;
     onSend(trimmed);
     setValue('');
-    // Reset height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
   return (
-    <div className="border-t border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
-      <div className="mx-auto flex max-w-3xl items-end gap-2">
+    <div className="border-t border-white/[0.06] bg-[#0a0a0f]/80 backdrop-blur-xl px-4 py-3">
+      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-[#18181b] border border-white/[0.06] px-3 py-2 shadow-elevated focus-within:border-primary-500/30 focus-within:shadow-[0_0_20px_rgba(59,130,246,0.08)] transition-all duration-300">
         <textarea
           ref={textareaRef}
           value={value}
@@ -49,10 +46,9 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
           placeholder={placeholder || '输入你的问题... (Enter 发送, Shift+Enter 换行)'}
           rows={1}
           className={cn(
-            'flex-1 resize-none rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-800',
-            'placeholder:text-gray-400',
-            'focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200',
-            'dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-primary-500 dark:focus:ring-primary-800',
+            'flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-200',
+            'placeholder:text-gray-500',
+            'focus:outline-none',
             'scrollbar-thin',
             disabled && 'cursor-not-allowed opacity-50',
           )}
@@ -62,13 +58,13 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
           onClick={handleSend}
           disabled={disabled || !value.trim()}
           className={cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition',
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
             value.trim() && !disabled
-              ? 'bg-primary-500 text-white hover:bg-primary-600 active:scale-95'
-              : 'bg-gray-200 text-gray-400 dark:bg-gray-700',
+              ? 'bg-primary-600 text-white hover:bg-primary-500 active:scale-95 shadow-sm'
+              : 'bg-white/[0.04] text-gray-500',
           )}
         >
-          {disabled ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+          {disabled ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
         </button>
       </div>
     </div>

@@ -243,7 +243,7 @@ API 文档：`http://localhost:8000/docs`
 
 ```bash
 cd frontend && npm install
-npm run dev    # http://localhost:5173
+CLC    # http://localhost:5173
 ```
 
 前端开发时需要后端运行在 `localhost:8000`（Vite 已配置代理）。

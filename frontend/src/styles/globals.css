@@ -6,21 +6,21 @@
 @layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.primary.300') transparent;
+    scrollbar-color: rgba(96, 165, 250, 0.15) transparent;
   }
   *::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
   *::-webkit-scrollbar-track {
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background-color: theme('colors.primary.300');
+    background-color: rgba(96, 165, 250, 0.15);
     border-radius: 999px;
   }
   .dark *::-webkit-scrollbar-thumb {
-    background-color: theme('colors.primary.700');
+    background-color: rgba(96, 165, 250, 0.2);
   }
 }
 
@@ -34,15 +34,46 @@
   }
 }
 
-/* ── Transitions ─────────────────────────────────────────────── */
+/* ── Body & base ─────────────────────────────────────────────── */
 @layer base {
   html {
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-white text-gray-900 transition-colors duration-200;
-    @apply dark:bg-gray-950 dark:text-gray-100;
+    @apply bg-[#09090b] text-gray-100 transition-colors duration-300;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* ── Heading utility ─────────────────────────────────────────── */
+@layer utilities {
+  .font-heading {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+  }
+}
+
+/* ── Dark premium background ─────────────────────────────────── */
+@layer utilities {
+  .bg-premium {
+    background-color: #09090b;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.08), transparent),
+      radial-gradient(ellipse 60% 40% at 80% 60%, rgba(99, 102, 241, 0.04), transparent);
+  }
+}
+
+/* ── Entrance animation delay utilities ──────────────────────── */
+@layer utilities {
+  .anim-delay-75 { animation-delay: 75ms; }
+  .anim-delay-100 { animation-delay: 100ms; }
+  .anim-delay-150 { animation-delay: 150ms; }
+  .anim-delay-200 { animation-delay: 200ms; }
+  .anim-delay-300 { animation-delay: 300ms; }
 }
 
 /* ── Prose overrides for AI message content ──────────────────── */
@@ -50,11 +81,10 @@
   @apply my-2 rounded-lg;
 }
 .prose code:not(pre code) {
-  @apply rounded px-1 py-0.5 text-sm;
+  @apply rounded px-1.5 py-0.5 text-sm;
 }
 .prose code:not(pre code) {
-  @apply bg-gray-100 text-primary-700;
-  @apply dark:bg-gray-700 dark:text-primary-300;
+  @apply bg-primary-500/10 text-primary-300;
 }
 .prose p {
   @apply my-1;
@@ -63,16 +93,16 @@
   @apply my-1;
 }
 .prose blockquote {
-  @apply border-l-4 border-primary-300 pl-4 italic text-gray-600 dark:text-gray-400;
+  @apply border-l-4 border-primary-500/40 pl-4 italic text-gray-400;
 }
 .prose table {
   @apply my-2 w-full text-sm;
 }
 .prose th {
-  @apply bg-gray-100 px-3 py-1.5 text-left font-medium dark:bg-gray-800;
+  @apply bg-white/5 px-3 py-1.5 text-left font-medium;
 }
 .prose td {
-  @apply border-t border-gray-200 px-3 py-1.5 dark:border-gray-700;
+  @apply border-t border-white/5 px-3 py-1.5;
 }
 
 /* ── Animations ──────────────────────────────────────────────── */
@@ -85,20 +115,115 @@
   }
 }
 
-@keyframes progress {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  0% { opacity: 0; transform: translateX(20px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes scale-in {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
+@keyframes progress {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .animate-progress {
   animation: progress 1.5s ease-in-out infinite;
 }
 
 /* ── Skeleton loader ─────────────────────────────────────────── */
 .skeleton {
-  @apply animate-pulse rounded bg-gray-200 dark:bg-gray-700;
+  @apply animate-pulse rounded bg-white/5;
+}
+
+/* ── Glass morphism ──────────────────────────────────────────── */
+@layer utilities {
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-2xl;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+  .glass-strong {
+    @apply bg-white/[0.05] backdrop-blur-2xl;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ── Shadow system for dark premium ──────────────────────────── */
+@layer utilities {
+  .shadow-soft {
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.3),
+      0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  .shadow-elevated {
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.3),
+      0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+  .shadow-float {
+    box-shadow:
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 12px 40px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ── Shimmer animation ──────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(96, 165, 250, 0.04) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* ── Gradient border utility ─────────────────────────────────── */
+@layer utilities {
+  .gradient-border {
+    position: relative;
+  }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, theme('colors.primary.500'), theme('colors.primary.800'));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/* ── Animated gradient background ────────────────────────────── */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 6s ease infinite;
+}
+
+/* ── Glow effects ────────────────────────────────────────────── */
+@layer utilities {
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.06);
+  }
+  .glow-primary-sm {
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.12);
+  }
 }

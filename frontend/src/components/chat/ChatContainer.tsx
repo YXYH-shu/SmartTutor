@@ -43,17 +43,14 @@ export function ChatContainer({ onQuickAction }: Props) {
   const { accessToken } = useAuthStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* ── Auto-scroll ──────────────────────────────────────────── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent, thinkingSteps]);
 
-  /* ── Cancel stream on unmount ────────────────────────────── */
   useEffect(() => {
     return () => { cancelStream(); };
   }, [cancelStream]);
 
-  /* ── Send handler (SSE streaming) ──────────────────────────── */
   const handleSend = async (content: string) => {
     if (!accessToken) {
       toast.error('请先登录');
@@ -64,10 +61,8 @@ export function ChatContainer({ onQuickAction }: Props) {
       return;
     }
 
-    // Cancel any existing stream before starting a new one
     cancelStream();
 
-    // Optimistically add user message
     addMessage({
       id: `temp-user-${Date.now()}`,
       conversation_id: currentConversationId,
@@ -110,7 +105,6 @@ export function ChatContainer({ onQuickAction }: Props) {
     );
   };
 
-  /* ── Regenerate handler ───────────────────────────────────── */
   const handleRegenerate = async () => {
     if (!accessToken) {
       toast.error('请先登录');
@@ -121,10 +115,8 @@ export function ChatContainer({ onQuickAction }: Props) {
       return;
     }
 
-    // Cancel any existing stream
     cancelStream();
 
-    // Remove the last assistant message from UI
     const msgs = useChatStore.getState().messages;
     const lastAssistantIdx = [...msgs].reverse().findIndex((m) => m.role === 'assistant');
     if (lastAssistantIdx !== -1) {
@@ -165,18 +157,17 @@ export function ChatContainer({ onQuickAction }: Props) {
     );
   };
 
-  /* ── Empty state ──────────────────────────────────────────── */
   if (!currentConversationId) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-8 px-4">
+      <div className="flex h-full flex-col items-center justify-center gap-8 px-4 animate-fade-in-up">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-100 dark:bg-primary-900/30">
-            <Sparkles size={32} className="text-primary-500" />
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500/10 glow-primary-sm">
+            <Sparkles size={28} className="text-primary-400" />
           </div>
-          <h2 className="mb-2 text-2xl font-bold text-gray-800 dark:text-gray-200">
+          <h2 className="font-heading mb-2 text-2xl tracking-tight text-white">
             你好，同学！
           </h2>
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-gray-500">
             选择左侧对话开始学习，或创建一个新对话
           </p>
         </div>
@@ -185,9 +176,9 @@ export function ChatContainer({ onQuickAction }: Props) {
             <button
               key={a.label}
               onClick={() => onQuickAction?.(a.action)}
-              className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 px-5 py-4 text-sm text-gray-600 transition hover:border-primary-300 hover:bg-primary-50 dark:border-gray-700 dark:text-gray-400 dark:hover:border-primary-600 dark:hover:bg-primary-900/20"
+              className="flex flex-col items-center gap-2.5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-6 py-5 text-sm text-gray-400 transition-all duration-200 hover:border-primary-500/20 hover:bg-primary-500/5 hover:text-gray-200"
             >
-              <a.icon size={22} className="text-primary-500" />
+              <a.icon size={20} className="text-primary-400" />
               {a.label}
             </button>
           ))}
@@ -196,12 +187,11 @@ export function ChatContainer({ onQuickAction }: Props) {
     );
   }
 
-  /* ── Messages ─────────────────────────────────────────────── */
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div className="flex-1 overflow-y-auto scrollbar-thin animate-fade-in">
         {messages.length === 0 && !isStreaming && (
-          <div className="flex h-full items-center justify-center text-gray-400">
+          <div className="flex h-full items-center justify-center text-gray-500">
             <p>开始一段新的学习旅程吧！</p>
           </div>
         )}
@@ -215,7 +205,6 @@ export function ChatContainer({ onQuickAction }: Props) {
           />
         ))}
 
-        {/* Streaming content bubble */}
         {isStreaming && (
           <MessageBubble
             message={{
@@ -230,31 +219,30 @@ export function ChatContainer({ onQuickAction }: Props) {
           />
         )}
 
-        {/* Loading / Progressive thinking */}
         {isLoading && !isStreaming && (
-          <div className="flex gap-3 px-4 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
+          <div className="flex gap-3 px-6 py-4">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-500/10 text-primary-400">
               <Bot size={16} />
             </div>
             <div className="min-w-0 max-w-[75%]">
               {thinkingSteps.length > 0 ? (
-                <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+                <div className="rounded-2xl border border-white/[0.06] bg-[#18181b] px-4 py-3">
                   <ThinkingView steps={thinkingSteps} />
-                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-400" />
+                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
                     {currentStep || '正在思考...'}
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-500/10">
                     <div className="flex gap-1">
                       <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.32s]" />
                       <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400 [animation-delay:-0.16s]" />
                       <span className="h-1.5 w-1.5 animate-bounce-dot rounded-full bg-primary-400" />
                     </div>
                   </div>
-                  <span className="text-sm text-gray-400">{currentStep || '正在思考...'}</span>
+                  <span className="text-sm text-gray-500">{currentStep || '正在思考...'}</span>
                 </div>
               )}
             </div>
@@ -272,8 +260,6 @@ export function ChatContainer({ onQuickAction }: Props) {
     </div>
   );
 }
-
-/* ── Quick Actions ──────────────────────────────────────────── */
 
 const quickActions = [
   {

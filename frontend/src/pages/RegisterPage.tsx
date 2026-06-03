@@ -46,20 +46,23 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#09090b] animate-fade-in">
       {/* Left – illustration */}
-      <div className="hidden flex-1 items-center justify-center bg-gradient-to-br from-primary-50 to-white p-12 lg:flex dark:from-gray-900 dark:to-gray-950">
-        <div className="max-w-md text-center">
-          <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-3xl bg-primary-500 shadow-lg shadow-primary-200">
+      <div className="hidden flex-1 items-center justify-center p-12 relative overflow-hidden lg:flex">
+        <div className="absolute -top-32 -left-32 h-[500px] w-[500px] rounded-full bg-primary-600/8 blur-[120px]" />
+        <div className="absolute -bottom-40 -right-20 h-96 w-96 rounded-full bg-primary-400/5 blur-[100px]" />
+
+        <div className="max-w-md text-center relative z-10">
+          <div className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary-600 shadow-lg glow-primary">
             <div className="flex">
-              <BookOpen size={40} className="text-white" />
-              <Lightbulb size={24} className="-ml-2 mt-5 text-yellow-300" />
+              <BookOpen size={32} className="text-white" />
+              <Lightbulb size={20} className="-ml-1.5 mt-4 text-primary-200" />
             </div>
           </div>
-          <h1 className="mb-3 text-3xl font-bold text-gray-800 dark:text-gray-100">
+          <h1 className="font-heading mb-3 text-3xl tracking-tight text-white">
             智慧导师
           </h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-gray-500">
             注册即开启 AI 个性化学习旅程
           </p>
         </div>
@@ -68,7 +71,7 @@ export default function RegisterPage() {
       {/* Right – form */}
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="w-full max-w-sm">
-          <h2 className="mb-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h2 className="font-heading mb-1 text-2xl tracking-tight text-white">
             创建账号
           </h2>
           <p className="mb-8 text-gray-500">开始你的智能学习之旅</p>
@@ -99,13 +102,12 @@ export default function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => setShowPwd(!showPwd)}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-500 hover:text-gray-300"
                   >
                     {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 }
               />
-              {/* Password strength bar */}
               {password && (
                 <div className="mt-2 flex gap-1">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -115,11 +117,11 @@ export default function RegisterPage() {
                         'h-1 flex-1 rounded-full transition-colors',
                         i < strength.level
                           ? strength.color
-                          : 'bg-gray-200 dark:bg-gray-700',
+                          : 'bg-white/5',
                       )}
                     />
                   ))}
-                  <span className="ml-2 text-xs text-gray-400">
+                  <span className="ml-2 text-xs text-gray-500">
                     {strength.label}
                   </span>
                 </div>
@@ -137,7 +139,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading || !passwordsMatch}
-              className="w-full rounded-xl bg-primary-500 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600 active:scale-[0.98] disabled:opacity-50"
+              className="w-full rounded-xl bg-primary-600 hover:bg-primary-500 py-2.5 text-sm font-medium text-white transition-all duration-200 active:scale-[0.98] disabled:opacity-50 shadow-sm glow-primary-sm"
             >
               {loading ? '注册中...' : '注 册'}
             </button>
@@ -147,7 +149,7 @@ export default function RegisterPage() {
             已有账号？{' '}
             <Link
               to="/login"
-              className="font-medium text-primary-500 hover:text-primary-600"
+              className="font-medium text-primary-400 hover:text-primary-300 transition-colors"
             >
               去登录
             </Link>
@@ -157,8 +159,6 @@ export default function RegisterPage() {
     </div>
   );
 }
-
-/* ── Helper ──────────────────────────────────────────────────── */
 
 function Field({
   icon,
@@ -181,24 +181,23 @@ function Field({
     <div>
       <div
         className={cn(
-          'flex items-center gap-2 rounded-xl border bg-gray-50 px-3 py-2.5 transition',
+          'flex items-center gap-2 rounded-xl border bg-white/[0.03] px-4 py-3 transition-all duration-200',
           error
-            ? 'border-red-400'
-            : 'border-gray-300 focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100 dark:border-gray-600 dark:focus-within:border-primary-500',
-          'dark:bg-gray-800',
+            ? 'border-red-500/40'
+            : 'border-white/[0.08] focus-within:border-primary-500/40 focus-within:shadow-[0_0_12px_rgba(59,130,246,0.08)]',
         )}
       >
-        <span className="text-gray-400">{icon}</span>
+        <span className="text-gray-500">{icon}</span>
         <input
           type={type}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-gray-200"
+          className="flex-1 bg-transparent text-sm text-gray-200 outline-none placeholder:text-gray-600"
         />
         {suffix}
       </div>
-      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
     </div>
   );
 }
@@ -212,8 +211,8 @@ function getStrength(pwd: string) {
 
   const levels = [
     { level: 0, label: '', color: '' },
-    { level: 1, label: '弱', color: 'bg-red-400' },
-    { level: 2, label: '一般', color: 'bg-yellow-400' },
+    { level: 1, label: '弱', color: 'bg-red-500' },
+    { level: 2, label: '一般', color: 'bg-yellow-500' },
     { level: 3, label: '较强', color: 'bg-primary-400' },
     { level: 4, label: '强', color: 'bg-green-500' },
   ];

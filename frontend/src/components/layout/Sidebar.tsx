@@ -34,10 +34,8 @@ export function Sidebar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
-  /* ── Group conversations by date ─────────────────────────────── */
   const grouped = groupByDate(conversations);
 
-  /* ── Handlers ────────────────────────────────────────────────── */
   const handleNew = async () => {
     try {
       const conv = await conversationService.create({ title: '新对话' });
@@ -92,53 +90,53 @@ export function Sidebar() {
   if (!sidebarOpen) return null;
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-      {/* ── Logo ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-500 text-white">
-          <BookOpen size={20} />
+    <aside className="flex h-screen w-64 flex-col border-r border-white/[0.06] bg-[#0a0a0f] animate-fade-in">
+      {/* Logo */}
+      <div className="flex items-center gap-2.5 px-4 py-4">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600 text-white shadow-sm">
+          <BookOpen size={16} />
         </div>
-        <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+        <span className="text-sm font-semibold tracking-tight text-white">
           智慧导师
         </span>
         <button
           onClick={toggleSidebar}
-          className="ml-auto rounded-md p-1 text-gray-400 hover:text-gray-600"
+          className="ml-auto rounded-md p-1 text-gray-500 hover:text-gray-300 transition-colors"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={16} />
         </button>
       </div>
 
-      {/* ── New Chat Button ─────────────────────────────────── */}
+      {/* New Chat Button */}
       <div className="px-3 pb-2">
         <button
           onClick={handleNew}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-600"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 hover:bg-primary-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 active:scale-[0.98]"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           新建对话
         </button>
       </div>
 
-      {/* ── Conversation List ───────────────────────────────── */}
+      {/* Conversation List */}
       <div className="flex-1 overflow-y-auto px-2 scrollbar-thin">
         {Object.entries(grouped).map(([label, convs]) => (
-          <div key={label} className="mb-3">
-            <p className="px-2 py-1 text-xs font-medium uppercase text-gray-400">
+          <div key={label} className="mb-2">
+            <p className="px-2 py-1.5 text-[11px] font-medium text-gray-500 tracking-wide">
               {label}
             </p>
             {convs.map((conv) => (
               <div
                 key={conv.id}
                 className={cn(
-                  'group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition cursor-pointer',
+                  'group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all duration-200 cursor-pointer',
                   conv.id === currentConversationId
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                    : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800',
+                    ? 'bg-primary-500/10 text-primary-300'
+                    : 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200',
                 )}
                 onClick={() => handleSelect(conv.id)}
               >
-                <MessageSquare size={14} className="shrink-0 opacity-50" />
+                <MessageSquare size={14} className="shrink-0 opacity-40" />
                 {editingId === conv.id ? (
                   <input
                     value={editTitle}
@@ -146,7 +144,7 @@ export function Sidebar() {
                     onBlur={finishRename}
                     onKeyDown={(e) => e.key === 'Enter' && finishRename()}
                     onClick={(e) => e.stopPropagation()}
-                    className="flex-1 rounded border border-primary-300 bg-white px-1 text-sm outline-none"
+                    className="flex-1 rounded border border-white/10 bg-white/5 text-gray-200 px-1.5 text-sm outline-none focus:border-primary-500"
                     autoFocus
                   />
                 ) : (
@@ -158,7 +156,7 @@ export function Sidebar() {
                       e.stopPropagation();
                       startRename(conv.id, conv.title || '');
                     }}
-                    className="rounded p-0.5 text-gray-400 hover:text-gray-600"
+                    className="rounded p-0.5 text-gray-500 hover:text-gray-300"
                   >
                     <Pencil size={12} />
                   </button>
@@ -167,7 +165,7 @@ export function Sidebar() {
                       e.stopPropagation();
                       handleDelete(conv.id);
                     }}
-                    className="rounded p-0.5 text-gray-400 hover:text-red-500"
+                    className="rounded p-0.5 text-gray-500 hover:text-red-400"
                   >
                     <Trash2 size={12} />
                   </button>
@@ -178,29 +176,27 @@ export function Sidebar() {
         ))}
       </div>
 
-      {/* ── User Section ────────────────────────────────────── */}
-      <div className="border-t border-gray-200 px-3 py-3 dark:border-gray-800">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-500 text-xs font-bold text-white">
+      {/* User Section */}
+      <div className="border-t border-white/[0.06] px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-600 text-xs font-bold text-white">
             {user?.username?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <span className="flex-1 truncate text-sm font-medium text-gray-700 dark:text-gray-300">
+          <span className="flex-1 truncate text-sm text-gray-300">
             {user?.username || '用户'}
           </span>
           <button
             onClick={handleLogout}
             title="退出登录"
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-200 hover:text-red-500 dark:hover:bg-gray-800"
+            className="rounded-lg p-1.5 text-gray-500 hover:text-red-400 transition-colors"
           >
-            <LogOut size={16} />
+            <LogOut size={15} />
           </button>
         </div>
       </div>
     </aside>
   );
 }
-
-/* ── Helper ──────────────────────────────────────────────────────── */
 
 function groupByDate(convs: { id: string; title: string | null; updated_at: string }[]) {
   const now = new Date();
@@ -216,6 +212,5 @@ function groupByDate(convs: { id: string; title: string | null; updated_at: stri
     else groups['更早'].push(c);
   }
 
-  // Remove empty groups
   return Object.fromEntries(Object.entries(groups).filter(([, v]) => v.length > 0));
 }
