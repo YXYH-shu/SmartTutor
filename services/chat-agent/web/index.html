@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChatAgent</title>
+    <link rel="stylesheet" href="/web/style.css?v=20260610-collapsible" />
+  </head>
+  <body>
+    <main id="appShell" class="app-shell">
+      <aside id="leftPanel" class="side-panel">
+        <button id="leftPanelToggle" class="panel-toggle" type="button" aria-expanded="true">收起测试场景</button>
+        <div class="panel-content">
+          <header class="brand-row">
+            <div>
+              <h1>ChatAgent</h1>
+              <p id="sessionId">Session</p>
+            </div>
+            <button id="newSessionBtn" type="button" title="新会话">+</button>
+          </header>
+
+          <section class="panel-section">
+            <h2>Skills</h2>
+            <div id="skillsList" class="skill-list"></div>
+          </section>
+
+          <section class="panel-section">
+            <h2>Slots</h2>
+            <dl id="slotsList" class="slots-list"></dl>
+          </section>
+
+          <section class="panel-section">
+            <h2>测试场景</h2>
+            <div id="scenarioList" class="scenario-list"></div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="chat-panel">
+        <div id="messages" class="messages"></div>
+        <form id="chatForm" class="composer">
+          <textarea id="messageInput" rows="3" autocomplete="off"></textarea>
+          <div class="composer-actions">
+            <button id="sampleBtn" type="button">示例</button>
+            <button id="sendBtn" type="submit">发送</button>
+          </div>
+        </form>
+      </section>
+
+      <aside id="rightPanel" class="timeline-panel">
+        <button id="rightPanelToggle" class="panel-toggle" type="button" aria-expanded="true">收起执行过程</button>
+        <div class="panel-content">
+          <header>
+            <h2>执行过程</h2>
+            <span id="statusBadge">ready</span>
+          </header>
+          <ol id="eventsList" class="events-list"></ol>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/web/app.js?v=20260610-collapsible"></script>
+  </body>
+</html>

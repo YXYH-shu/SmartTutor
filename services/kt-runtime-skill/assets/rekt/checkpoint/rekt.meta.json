@@ -1,0 +1,121 @@
+{
+  "mode": "final",
+  "trained_on": "all_data",
+  "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/rekt.pt",
+  "data_dir": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/dataset",
+  "params": {
+    "data_dir": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/dataset",
+    "output_dir": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint",
+    "device": "cuda:0",
+    "seed": 42,
+    "folds": 5,
+    "seq_len": 200,
+    "hidden_dim": 128,
+    "batch_size": 1024,
+    "dropout": 0.4,
+    "lr": 0.002,
+    "weight_decay": 0.0,
+    "patience": 10,
+    "train_final": true
+  },
+  "seed": 42,
+  "epochs": 69,
+  "selection_strategy": "use best_epoch from fold with highest validation AUC",
+  "selected_fold": 2,
+  "selected_fold_best_epoch": 69,
+  "selected_fold_best_report": {
+    "auc": 0.7309524990387467,
+    "acc": 0.6697313633310947,
+    "precision": 0.6802155681719935,
+    "recall": 0.7335210427194242,
+    "f1": 0.7058633538886663,
+    "samples": 297800,
+    "positive_rate": 0.5402518468770987
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "best_epoch": 36,
+      "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/seed_42/rekt_fold1.pt",
+      "best_report": {
+        "auc": 0.719955276207058,
+        "acc": 0.6627217944425845,
+        "precision": 0.686467075970188,
+        "recall": 0.7005263093173965,
+        "f1": 0.6934254370616071,
+        "samples": 298700,
+        "positive_rate": 0.5444994978239036
+      }
+    },
+    {
+      "fold": 2,
+      "best_epoch": 69,
+      "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/seed_42/rekt_fold2.pt",
+      "best_report": {
+        "auc": 0.7309524990387467,
+        "acc": 0.6697313633310947,
+        "precision": 0.6802155681719935,
+        "recall": 0.7335210427194242,
+        "f1": 0.7058633538886663,
+        "samples": 297800,
+        "positive_rate": 0.5402518468770987
+      }
+    },
+    {
+      "fold": 3,
+      "best_epoch": 21,
+      "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/seed_42/rekt_fold3.pt",
+      "best_report": {
+        "auc": 0.7206105918062216,
+        "acc": 0.6636036647438073,
+        "precision": 0.6825901257429587,
+        "recall": 0.712982548091022,
+        "f1": 0.6974553977428786,
+        "samples": 294700,
+        "positive_rate": 0.5438378011537156
+      }
+    },
+    {
+      "fold": 4,
+      "best_epoch": 43,
+      "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/seed_42/rekt_fold4.pt",
+      "best_report": {
+        "auc": 0.7227133067974552,
+        "acc": 0.6627297026394922,
+        "precision": 0.6726166648812913,
+        "recall": 0.735611488611279,
+        "f1": 0.7027050906359982,
+        "samples": 299300,
+        "positive_rate": 0.5418576678917474
+      }
+    },
+    {
+      "fold": 5,
+      "best_epoch": 42,
+      "checkpoint": "/home/wq/code/ITS/TZB_v1/tool_models/rekt/checkpoint/seed_42/rekt_fold5.pt",
+      "best_report": {
+        "auc": 0.7231150857975557,
+        "acc": 0.6650751252086812,
+        "precision": 0.6908709288006455,
+        "recall": 0.6976764131120626,
+        "f1": 0.6942569935931433,
+        "samples": 299500,
+        "positive_rate": 0.5450383973288815
+      }
+    }
+  ],
+  "final_train_report": {
+    "auc": 0.7166038359263662,
+    "acc": 0.6650657718120805,
+    "precision": 0.6803493449781659,
+    "recall": 0.722958669821988,
+    "f1": 0.7010071235568657,
+    "samples": 1490000,
+    "positive_rate": 0.5430973154362416
+  },
+  "qst_num": 1003,
+  "skl_num": 349,
+  "usr_num": 5000,
+  "samples": 10000,
+  "time_seconds": 1212.7408590316772
+}

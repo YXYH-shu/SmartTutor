@@ -36,6 +36,9 @@ frontend/.vite/
 # Logs
 *.log
 logs/
+services/**/logs/
+services/**/.runtime/
+services/**/.pytest_cache/
 
 # OS
 .DS_Store
@@ -47,3 +50,12 @@ Thumbs.db
 # Build artifacts
 package-lock.json
 .gstack/
+
+# Embedded services
+services/**/.env
+services/**/.env.local
+services/**/__pycache__/
+services/**/Agents.md
+services/**/AGENTS.md
+services/**/agents.md
+services/**/docs/superpowers/

@@ -1,0 +1,19 @@
+[skills.kt_runtime]
+name = "kt-runtime-skill"
+path = "../kt-runtime-skill"
+skill_executor = "skill_markdown"
+level = 1
+
+[execution]
+timeout_seconds = 120
+
+[agent]
+mode = "deepagent"
+
+[llm]
+provider = "openai_compatible"
+model = ""
+base_url = ""
+
+[deepagents]
+skill_sources = [".."]
