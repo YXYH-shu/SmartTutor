@@ -61,7 +61,51 @@ llm_analysis.selected_knowledge_points
 ## 4. 诊断知识点明细
 ```
 
-## 4. 验证
+## 4. Skill Schema
+
+```json
+{
+  "name": "kt-runtime-skill",
+  "description": "基于学生 ID 和可选学习上下文，运行 KT/REKT 推理并生成中文学情分析报告。",
+  "input_schema": {
+    "type": "object",
+    "required": ["student_id"],
+    "properties": {
+      "student_id": {
+        "type": "string",
+        "description": "学生 ID，例如 \"42\"。"
+      },
+      "history_context": {
+        "type": "string",
+        "description": "可选。学生近期提问、学习上下文或教师补充的历史问题，用于辅助选择知识点和生成自然语言分析。"
+      }
+    },
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["status", "report_markdown"],
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["ok", "error"],
+        "description": "运行状态。ok 表示成功生成报告；error 表示运行失败。"
+      },
+      "report_markdown": {
+        "type": "string",
+        "description": "完整学情分析报告 Markdown。报告固定包含：主题判定、知识点集合、学情分析结果、诊断知识点明细。"
+      },
+      "message": {
+        "type": "string",
+        "description": "可选。状态说明或错误信息。"
+      }
+    },
+    "additionalProperties": false
+  }
+}
+```
+
+## 5. 验证
 
 从本目录运行：
 
@@ -75,7 +119,7 @@ conda run -n kt python -m unittest discover -s tests
 bash scripts/kt-topic4/check_kt_integration.sh
 ```
 
-## 5. 版本管理约束
+## 6. 版本管理约束
 
 - 不提交 `.env`。
 - 不提交 `.git/`。
