@@ -36,6 +36,7 @@ frontend/.vite/
 # Logs
 *.log
 logs/
+.runtime/
 services/**/logs/
 services/**/.runtime/
 services/**/.pytest_cache/
