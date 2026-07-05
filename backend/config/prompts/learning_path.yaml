@@ -3,7 +3,7 @@ description: "个性化学习路径规划智能体（基于认知诊断结果）
 version: "3.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
   temperature: 0.5
   max_tokens: 4028
   timeout: 180

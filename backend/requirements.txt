@@ -33,6 +33,10 @@ jsonschema==4.26.0
 # YAML config
 pyyaml==6.0.3
 
+# Resource CTR ranking model (online inference only; parquet tools stay out of app runtime)
+numpy==2.5.1
+torch==2.12.1
+
 # Auth
 PyJWT==2.10.1
 bcrypt==5.0.0

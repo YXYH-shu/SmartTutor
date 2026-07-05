@@ -42,10 +42,10 @@ services:
       SMART_TUTOR_DATABASE__ASYNC_MYSQL_URL: mysql+aiomysql://tutor:tutor123@mysql:3306/smart_tutor
       SMART_TUTOR_APP__DEBUG: "true"
       SMART_TUTOR_APP__SECRET_KEY: ${SECRET_KEY:-change-me-in-production-32chars!!}
-      SMART_TUTOR_LLM__PROVIDER: ${LLM_PROVIDER:-openai}
-      SMART_TUTOR_LLM__BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      SMART_TUTOR_LLM__PROVIDER: ${LLM_PROVIDER:-glm}
+      SMART_TUTOR_LLM__BASE_URL: ${LLM_BASE_URL:-https://api.tokenhub.market/v1}
       SMART_TUTOR_LLM__API_KEY: ${LLM_API_KEY:-sk-xxxxxxxxxxxxxxxx}
-      SMART_TUTOR_LLM__MODEL_NAME: ${LLM_MODEL_NAME:-gpt-4o}
+      SMART_TUTOR_LLM__MODEL_NAME: ${LLM_MODEL_NAME:-glm-5}
       SMART_TUTOR_LANGGRAPH__CHECKPOINT_TYPE: ${CHECKPOINT_TYPE:-memory}
     depends_on:
       mysql:
