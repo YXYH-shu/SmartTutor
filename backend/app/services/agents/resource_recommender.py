@@ -1211,11 +1211,22 @@ class ResourceRecommenderAgent(BaseAgent):
 
     async def _run_select_sql(self, sql: str) -> list[dict[str, Any]]:
         safe_sql = self._validate_select_sql(sql)
-        from app.database import AsyncSessionLocal
+        from app.database import AsyncSessionLocal, engine
 
+        # 双重防御:在已有的白名单/黑名单校验之上,强制 session 只读,
+        # 即使白名单被绕过,也无法执行任何 DDL/DML 写入。
+        dialect_name = engine.dialect.name
         async with AsyncSessionLocal() as session:
-            result = await session.execute(text(safe_sql))
-            return [self._serialize_row(dict(row)) for row in result.mappings().all()]
+            if dialect_name == "sqlite":
+                await session.execute(text("PRAGMA query_only = ON"))
+            elif dialect_name == "mysql":
+                await session.execute(text("SET SESSION TRANSACTION READ ONLY"))
+            try:
+                result = await session.execute(text(safe_sql))
+                return [self._serialize_row(dict(row)) for row in result.mappings().all()]
+            finally:
+                if dialect_name == "mysql":
+                    await session.execute(text("SET SESSION TRANSACTION READ WRITE"))
 
     def _validate_select_sql(self, sql: str) -> str:
         normalized = sql.strip()

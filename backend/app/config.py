@@ -37,6 +37,9 @@ class LLMSettings(BaseSettings):
     max_tokens: int = 4096      # 全局默认最大输出 token 数（推理模型需设大一些）
     max_retries: int = 3
     timeout: int = 60
+    # 是否显式传 thinking extra_body。GLM-5 等推理模型默认就开启 thinking，
+    # 此开关仅用于对非默认行为的模型显式开启。默认 false（不传 extra_body）。
+    enable_thinking: bool = False
 
 
 class AppSettings(BaseSettings):
