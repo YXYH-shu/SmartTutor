@@ -84,8 +84,8 @@ class LLMClient:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        if thinking:
-            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        # if thinking:
+        #     kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         last_exc: Exception | None = None
         used_json_mode = json_mode  # track whether we already tried without it

@@ -582,7 +582,7 @@ docker-compose up --build
 | `SMART_TUTOR_LLM__PROVIDER` | LLM 提供者 | `glm` |
 | `SMART_TUTOR_LLM__BASE_URL` | LLM API 地址 | 智谱 GLM API |
 | `SMART_TUTOR_LLM__API_KEY` | API Key（必填） | — |
-| `SMART_TUTOR_LLM__MODEL_NAME` | 模型名 | `glm-4-flash` |
+| `SMART_TUTOR_LLM__MODEL_NAME` | 模型名 | `glm-5` |
 | `SMART_TUTOR_APP__DEBUG` | 调试模式 | `true` |
 | `SMART_TUTOR_APP__SECRET_KEY` | JWT 密钥 | — |
 | `SMART_TUTOR_LANGGRAPH__CHECKPOINT_TYPE` | 检查点类型 | `memory` |

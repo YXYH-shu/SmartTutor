@@ -1,0 +1,11 @@
+{
+  "source_db": "D:\\Project\\SmartTutor\\backend\\smart_tutor.db",
+  "generated_at": "2026-07-04T12:45:22.391244+00:00",
+  "seq_max_len": 20,
+  "resource_ids": [
+    "mock-res-cell-article",
+    "mock-res-photosynthesis-practice",
+    "mock-res-photosynthesis-video"
+  ],
+  "warning": "This checkpoint is randomly initialized and only validates the online model path."
+}
