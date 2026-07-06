@@ -3,7 +3,7 @@ description: "个性化学习资源推荐智能体"
 version: "3.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.5
   max_tokens: 4028
   timeout: 180
@@ -37,9 +37,10 @@ prompt_template: &plan_prompt |
   ## 可使用的工具
 
   CandidateStoreTool：
-  该工具用于将候选学习资源存入缓冲区，作为初始候选集，后续工具将基于该候选集进行学习资源的过滤或排序。
-  例如，当用户提出“请从这些学习资源中挑选最适合我的一个”时，可使用该工具；若用户未指定具体的候选学习资源集合，请勿使用。
-  工具的输入内容为以英文分号分隔的学习资源名称列表。
+  该工具用于将用户明确指定的候选学习资源存入缓冲区，作为初始候选集，后续工具将基于该候选集进行学习资源的过滤或排序。
+  例如，当用户提出“我应该从 A、B 和 C 中学习哪个”“A 和 B 哪个更适合我”“请从这些学习资源中挑选最适合我的一个”时，必须使用该工具；若用户未指定具体的候选学习资源集合，请勿使用。
+  工具的输入内容为从用户原话中解析出的学习资源名称列表，不要为这些候选资源名称生成 name LIKE SQL。
+  如果某些候选资源在数据库中没有匹配结果，工具会在 tool_results.candidate_store.unmatched_items 中记录，Summary 阶段必须向用户说明。
   返回 JSON 格式示例：
   {"tool_name": "CandidateStoreTool", "input": {"items": ["资源1", "资源2", "资源3"]}}
 
@@ -223,7 +224,7 @@ prompt_template: &plan_prompt |
     ]
   }
 
-  若用户指定了候选学习资源，需先使用 CandidateStoreTool 将这些学习资源加入缓冲区，之后的推荐结果将仅从这些候选集中推荐。
+  若用户指定了候选学习资源，需先使用 CandidateStoreTool 将这些学习资源加入缓冲区，之后的推荐结果将仅从这些候选集中推荐；不得改用 SqlRetrievalTool 通过资源名称 SQL 来初始化候选集。
   在给出推荐结果前，务必使用 RankingTool。
   若无硬性条件和软性条件的筛选需求，可直接使用 RankingTool。
   若用户提出“和某个学习资源相似”的需求，使用 ItemCfRetrievalTool。
@@ -252,7 +253,8 @@ reflection_prompt_template: |
   1. 如果 plan.target_count > 0，ranked_resources 数量必须尽量满足 target_count；
   2. 如果用户请求推荐资源，工具链应包含 RankingTool，用于最终排序和数量控制；
   3. 如果推荐结果为空或数量不足，通常说明 SQL 条件过窄，应建议下一轮 plan 放宽难度、类型或知识点条件，先扩大召回再排序截断；
-  4. 如果用户只是查询资源信息或统计信息，QueryTool 有结果即可，不需要强制 RankingTool。
+  4. 如果用户只是查询资源信息或统计信息，QueryTool 有结果即可，不需要强制 RankingTool；
+  5. 如果 tool_results.candidate_store.unmatched_items 不为空，说明用户指定的部分候选资源未在资源库中匹配到；这不是推荐排序失败，但必须在 suggestion 中提醒 Summary：最终回答要说明这些候选未找到，并说明推荐是在剩余已匹配候选中产生，不能说成“在全部原始候选中更推荐某资源”。
 
   ## 当前输入数据
 
@@ -295,6 +297,8 @@ summary_prompt_template: |
 
   如果 plan 判断无需工具，请优先基于 plan.final_answer 直接回答用户。
   如果 plan 使用了工具，请基于 ranked_resources 或 query_results 生成回答；不要编造工具结果中不存在的具体资源。
+  如果 tool_results.candidate_store.unmatched_items 不为空，最终回答中必须说明这些候选资源未在资源库中匹配到，并明确推荐是在剩余已匹配候选中产生的。
+  例如：用户给了 A、B、C 三个候选，若 B 在 unmatched_items 中且最终推荐 A，不能说“在 A、B、C 中更适合学 A”，应说“B 未在资源库中匹配到，因此我在 A 和 C 中比较后，更推荐 A”。
   如果工具结果为空，可说明当前推荐流程已完成但真实工具尚待接入，或暂无可用推荐结果。
 
   ## 当前输入数据
@@ -398,6 +402,14 @@ output_schema:
       description: "QueryTool 的结构化查询结果，供后续知识回复节点引用"
       items:
         type: object
+    candidate_store:
+      type: object
+      description: "CandidateStoreTool 的匹配结果元信息，包含用户指定候选、已匹配候选和未匹配候选"
+    unmatched_candidate_items:
+      type: array
+      description: "用户指定但未在资源库中匹配到的候选资源名称"
+      items:
+        type: string
     planning:
       type: object
       properties:

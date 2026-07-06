@@ -3,7 +3,7 @@ description: "知识回复生成智能体，基于用户消息和上下文生成
 version: "1.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.7
   max_tokens: 4028
   timeout: 120

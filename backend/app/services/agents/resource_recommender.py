@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import time
 import uuid
 from datetime import date, datetime
 from typing import Any
 
+import numpy as np
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from jinja2 import BaseLoader, Environment, StrictUndefined
@@ -192,6 +194,11 @@ class ResourceRecommenderAgent(BaseAgent):
             payload["tool_trace"] = tool_results.get("tool_trace", [])
         if not payload.get("query_results"):
             payload["query_results"] = tool_results.get("query_results", [])
+        if not payload.get("candidate_store"):
+            payload["candidate_store"] = tool_results.get("candidate_store", {})
+        if not payload.get("unmatched_candidate_items"):
+            candidate_store = tool_results.get("candidate_store", {})
+            payload["unmatched_candidate_items"] = candidate_store.get("unmatched_items", [])
         return self._ensure_output_shape(payload), usage
 
     async def _persist_recommendation(
@@ -235,6 +242,7 @@ class ResourceRecommenderAgent(BaseAgent):
             "planning": output.get("planning", {}),
             "reflection": output.get("reflection", {}),
             "tool_trace": output.get("tool_trace", []),
+            "candidate_store": output.get("candidate_store", {}),
             "plan_history": plan_history,
             "reflection_history": reflection_history,
             "current_message": input_data.get("current_message", ""),
@@ -315,6 +323,8 @@ class ResourceRecommenderAgent(BaseAgent):
         query_results: list[dict[str, Any]] = []
         ranked_resources: list[dict[str, Any]] = []
         tool_trace: list[dict[str, Any]] = []
+        candidate_scope_active = False
+        candidate_store = self._empty_candidate_store_result()
 
         for call in plan.get("tool_calls", []):
             tool_name = str(call.get("tool_name", ""))
@@ -322,34 +332,51 @@ class ResourceRecommenderAgent(BaseAgent):
             tool_input = call.get("input", call.get("arguments", {}))
             if not isinstance(tool_input, dict):
                 tool_input = {}
+            trace_extra: dict[str, Any] = {}
 
             if tool_key == "CandidateStoreTool":
-                result = await self._candidate_store_tool(tool_input, input_data)
-                candidates.extend(result)
+                result, store_meta = await self._candidate_store_tool_result(tool_input, input_data)
+                candidates = self._dedupe_resources([*candidates, *result])
+                candidate_scope_active = True
+                candidate_store = self._merge_candidate_store_result(candidate_store, store_meta)
+                trace_extra = {
+                    "matched_items": store_meta.get("matched_items", []),
+                    "unmatched_items": store_meta.get("unmatched_items", []),
+                    "matched_resource_ids": store_meta.get("matched_resource_ids", []),
+                }
             elif tool_key == "QueryTool":
                 result = await self._query_tool(tool_input, input_data)
                 query_results.extend(result)
             elif tool_key == "SqlRetrievalTool":
                 result = await self._sql_retrieval_tool(tool_input, input_data)
-                candidates.extend(result)
+                if candidate_scope_active:
+                    candidates = self._intersect_candidates_by_resource_ids(candidates, result)
+                else:
+                    candidates.extend(result)
             elif tool_key == "ItemCfRetrievalTool":
                 result = await self._item_cf_retrieval_tool(tool_input, candidates, input_data)
-                candidates.extend(result)
+                candidates = result
             elif tool_key == "RankingTool":
                 result = await self._ranking_tool(tool_input, candidates, input_data)
                 ranked_resources = result
             else:
                 result = []
 
-            status = "executed" if tool_key in {"QueryTool", "SqlRetrievalTool", "RankingTool"} else "placeholder"
-            tool_trace.append(
-                {
-                    "tool": tool_key or tool_name or "unknown_tool",
-                    "status": status,
-                    "input": tool_input,
-                    "count": self._count_tool_result(result),
-                }
-            )
+            status = "executed" if tool_key in {
+                "QueryTool",
+                "CandidateStoreTool",
+                "SqlRetrievalTool",
+                "ItemCfRetrievalTool",
+                "RankingTool",
+            } else "placeholder"
+            trace_entry = {
+                "tool": tool_key or tool_name or "unknown_tool",
+                "status": status,
+                "input": tool_input,
+                "count": self._count_tool_result(result),
+            }
+            trace_entry.update(trace_extra)
+            tool_trace.append(trace_entry)
 
         if not ranked_resources:
             ranked_resources = candidates
@@ -359,11 +386,145 @@ class ResourceRecommenderAgent(BaseAgent):
             "query_results": query_results,
             "ranked_resources": ranked_resources,
             "tool_trace": tool_trace,
+            "candidate_store": candidate_store,
         }
 
     async def _candidate_store_tool(self, tool_input: dict[str, Any], input_data: dict[str, Any]) -> list[dict[str, Any]]:
-        """TODO: store user-provided candidate resources."""
-        return []
+        """Resolve user-provided candidate resource names into resource candidates."""
+        candidates, _ = await self._candidate_store_tool_result(tool_input, input_data)
+        return candidates
+
+    async def _candidate_store_tool_result(
+        self,
+        tool_input: dict[str, Any],
+        input_data: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        source_items = self._candidate_store_source_items(tool_input)
+        meta = self._empty_candidate_store_result()
+        meta["requested_items"] = source_items
+        if not source_items:
+            logger.warning("[resource_recommender] CandidateStoreTool missing items")
+            return [], meta
+
+        from app.database import AsyncSessionLocal
+        from app.models.learning_resource import LearningResource
+
+        rows: list[dict[str, Any]] = []
+        source_by_resource_id: dict[str, list[str]] = {}
+        async with AsyncSessionLocal() as session:
+            for source_item in source_items:
+                result = await session.execute(
+                    select(*self._learning_resource_columns())
+                    .where(LearningResource.name.contains(source_item, autoescape=True))
+                    .order_by(LearningResource.name)
+                )
+                matched_rows = [self._serialize_row(dict(row)) for row in result.mappings().all()]
+                if not matched_rows:
+                    self._append_unique(meta["unmatched_items"], source_item)
+                    continue
+
+                self._append_unique(meta["matched_items"], source_item)
+                for row in matched_rows:
+                    resource_id = str(row.get("id") or "")
+                    if resource_id:
+                        source_by_resource_id.setdefault(resource_id, [])
+                        self._append_unique(source_by_resource_id[resource_id], source_item)
+                    rows.append(row)
+
+        candidates = await self._rows_to_resource_candidates(rows)
+        for candidate in candidates:
+            resource_id = str(candidate.get("id") or "")
+            candidate["recommend_reason"] = "由 CandidateStoreTool 根据用户指定候选资源名称匹配召回。"
+            candidate["source_items"] = source_by_resource_id.get(resource_id, [])
+            if resource_id:
+                self._append_unique(meta["matched_resource_ids"], resource_id)
+
+        meta["matches"] = [
+            {
+                "resource_id": candidate.get("id"),
+                "title": candidate.get("title"),
+                "source_items": candidate.get("source_items", []),
+            }
+            for candidate in candidates
+        ]
+        return candidates, meta
+
+    def _candidate_store_source_items(self, tool_input: dict[str, Any]) -> list[str]:
+        raw_items = (
+            tool_input.get("items")
+            or tool_input.get("item")
+            or tool_input.get("resources")
+            or tool_input.get("resource")
+            or tool_input.get("candidates")
+        )
+        items: list[str] = []
+        for item in self._as_list(raw_items):
+            if item is None:
+                continue
+            for part in re.split(r"[,，、;；\n\r]+", str(item)):
+                value = part.strip()
+                if value:
+                    self._append_unique(items, value)
+        return items
+
+    def _empty_candidate_store_result(self) -> dict[str, Any]:
+        return {
+            "requested_items": [],
+            "matched_items": [],
+            "unmatched_items": [],
+            "matched_resource_ids": [],
+            "matches": [],
+        }
+
+    def _merge_candidate_store_result(
+        self,
+        base: dict[str, Any],
+        incoming: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = {
+            "requested_items": list(self._as_list(base.get("requested_items"))),
+            "matched_items": list(self._as_list(base.get("matched_items"))),
+            "unmatched_items": list(self._as_list(base.get("unmatched_items"))),
+            "matched_resource_ids": list(self._as_list(base.get("matched_resource_ids"))),
+            "matches": [
+                item
+                for item in self._as_list(base.get("matches"))
+                if isinstance(item, dict)
+            ],
+        }
+        for key in ("requested_items", "matched_items", "unmatched_items", "matched_resource_ids"):
+            for item in self._as_list(incoming.get(key)):
+                self._append_unique(merged[key], str(item))
+
+        seen_matches = {
+            str(item.get("resource_id") or "")
+            for item in merged["matches"]
+            if isinstance(item, dict)
+        }
+        for item in self._as_list(incoming.get("matches")):
+            if not isinstance(item, dict):
+                continue
+            resource_id = str(item.get("resource_id") or "")
+            if resource_id and resource_id in seen_matches:
+                continue
+            merged["matches"].append(item)
+            if resource_id:
+                seen_matches.add(resource_id)
+        return merged
+
+    def _intersect_candidates_by_resource_ids(
+        self,
+        candidates: list[dict[str, Any]],
+        filters: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        filter_ids = set(self._extract_resource_ids(filters))
+        if not filter_ids:
+            return []
+        return [
+            candidate
+            for candidate in candidates
+            if self._row_resource_id(candidate) in filter_ids
+        ]
 
     async def _query_tool(self, tool_input: dict[str, Any], input_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute a read-only information query against resource tables."""
@@ -398,8 +559,250 @@ class ResourceRecommenderAgent(BaseAgent):
         candidates: list[dict[str, Any]],
         input_data: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        """TODO: item-based collaborative filtering retrieval."""
-        return []
+        """Retrieve resources similar to anchor items using resource embeddings."""
+        source_items = self._item_cf_source_items(tool_input)
+        if not source_items:
+            logger.warning("[resource_recommender] ItemCfRetrievalTool missing items")
+            return []
+
+        anchors = await self._resolve_item_cf_anchor_resources(source_items)
+        anchor_vectors = [
+            (row, vector)
+            for row in anchors
+            if (vector := self._parse_embed_vector(row.get("embed")))
+        ]
+        if not anchor_vectors:
+            logger.warning("[resource_recommender] ItemCfRetrievalTool no anchor embeds found")
+            return []
+
+        scoped_ids = self._extract_resource_ids(candidates)
+        if candidates and not scoped_ids:
+            logger.warning("[resource_recommender] ItemCfRetrievalTool candidates missing ids")
+            return []
+
+        candidate_rows = await self._fetch_item_cf_candidate_resources(
+            scoped_ids if candidates else None,
+        )
+        anchor_ids = {str(row.get("id")) for row, _ in anchor_vectors}
+        source_labels = [
+            str(row.get("name") or row.get("id"))
+            for row, _ in anchor_vectors
+            if row.get("name") or row.get("id")
+        ] or source_items
+
+        anchor_groups: dict[int, list[tuple[dict[str, Any], list[float]]]] = {}
+        for row, vector in anchor_vectors:
+            anchor_groups.setdefault(len(vector), []).append((row, vector))
+
+        candidate_groups: dict[int, list[tuple[dict[str, Any], list[float]]]] = {}
+        skipped_dimension_count = 0
+        skipped_dimension_examples: list[str] = []
+        threshold = self._safe_float(tool_input.get("threshold"), 0.2)
+        for row in candidate_rows:
+            resource_id = str(row.get("id") or "")
+            if not resource_id or resource_id in anchor_ids:
+                continue
+            vector = self._parse_embed_vector(row.get("embed"))
+            if not vector:
+                continue
+            vector_dim = len(vector)
+            if vector_dim not in anchor_groups:
+                skipped_dimension_count += 1
+                if len(skipped_dimension_examples) < 5:
+                    skipped_dimension_examples.append(resource_id)
+                continue
+            candidate_groups.setdefault(vector_dim, []).append((row, vector))
+
+        if skipped_dimension_count:
+            logger.warning(
+                "[resource_recommender] ItemCfRetrievalTool skipped %s candidates with unmatched embedding dimensions: %s",
+                skipped_dimension_count,
+                skipped_dimension_examples,
+            )
+
+        scored: list[dict[str, Any]] = []
+        for dim, grouped_candidates in candidate_groups.items():
+            grouped_anchors = anchor_groups.get(dim, [])
+            if not grouped_anchors:
+                continue
+
+            anchor_matrix = self._normalized_embedding_matrix(
+                [vector for _, vector in grouped_anchors]
+            )
+            candidate_matrix = self._normalized_embedding_matrix(
+                [vector for _, vector in grouped_candidates]
+            )
+            if anchor_matrix.size == 0 or candidate_matrix.size == 0:
+                continue
+
+            similarity_scores = candidate_matrix @ anchor_matrix.T
+            best_anchor_indexes = np.argmax(similarity_scores, axis=1)
+            best_scores = similarity_scores[
+                np.arange(similarity_scores.shape[0]),
+                best_anchor_indexes,
+            ]
+
+            for candidate_index, (row, _) in enumerate(grouped_candidates):
+                best_score = float(best_scores[candidate_index])
+                if best_score < threshold:
+                    continue
+
+                best_anchor_row = grouped_anchors[int(best_anchor_indexes[candidate_index])][0]
+                best_anchor = str(best_anchor_row.get("name") or best_anchor_row.get("id") or "")
+
+                candidate = self._resource_row_to_candidate(row)
+                candidate["recommend_reason"] = "由 ItemCfRetrievalTool 根据资源 embedding 相似度召回。"
+                candidate["similarity_score"] = best_score
+                candidate["similarity_reason"] = (
+                    f"Embedding cosine similarity with {best_anchor or 'source item'} is {best_score:.4f}."
+                )
+                candidate["source_items"] = source_labels
+                scored.append(candidate)
+
+        scored.sort(key=lambda item: self._safe_float(item.get("similarity_score"), 0), reverse=True)
+        num = self._safe_int(tool_input.get("num"), 20)
+        return scored[:num] if num > 0 else scored
+
+    def _item_cf_source_items(self, tool_input: dict[str, Any]) -> list[str]:
+        raw_items = (
+            tool_input.get("items")
+            or tool_input.get("item")
+            or tool_input.get("resources")
+            or tool_input.get("resource")
+        )
+        return [
+            str(item).strip()
+            for item in self._as_list(raw_items)
+            if str(item).strip()
+        ]
+
+    async def _resolve_item_cf_anchor_resources(self, items: list[str]) -> list[dict[str, Any]]:
+        from app.database import AsyncSessionLocal
+        from app.models.learning_resource import LearningResource
+
+        columns = self._learning_resource_columns(include_embed=True)
+        anchors: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        async with AsyncSessionLocal() as session:
+            exact_result = await session.execute(
+                select(*columns).where(LearningResource.id.in_(items))
+            )
+            for row in exact_result.mappings().all():
+                item = self._serialize_row(dict(row))
+                resource_id = str(item.get("id") or "")
+                if resource_id and resource_id not in seen:
+                    anchors.append(item)
+                    seen.add(resource_id)
+
+            for raw_item in items:
+                if raw_item in seen:
+                    continue
+                name_result = await session.execute(
+                    select(*columns)
+                    .where(LearningResource.name.like(f"%{raw_item}%"))
+                    .order_by(LearningResource.name)
+                    .limit(1)
+                )
+                row = name_result.mappings().first()
+                if not row:
+                    continue
+                item = self._serialize_row(dict(row))
+                resource_id = str(item.get("id") or "")
+                if resource_id and resource_id not in seen:
+                    anchors.append(item)
+                    seen.add(resource_id)
+
+        return anchors
+
+    async def _fetch_item_cf_candidate_resources(
+        self,
+        resource_ids: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        from app.database import AsyncSessionLocal
+        from app.models.learning_resource import LearningResource
+
+        if resource_ids is not None and not resource_ids:
+            return []
+
+        query = select(*self._learning_resource_columns(include_embed=True)).where(
+            LearningResource.embed.is_not(None),
+            LearningResource.embed != "",
+        )
+        if resource_ids is not None:
+            query = query.where(LearningResource.id.in_(resource_ids))
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(query)
+            return [
+                self._serialize_row(dict(row))
+                for row in result.mappings().all()
+            ]
+
+    def _learning_resource_columns(self, include_embed: bool = False) -> list[Any]:
+        from app.models.learning_resource import LearningResource
+
+        columns = [
+            LearningResource.id,
+            LearningResource.name,
+            LearningResource.content,
+            LearningResource.type,
+            LearningResource.url,
+            LearningResource.difficult,
+            LearningResource.time_need,
+        ]
+        if include_embed:
+            columns.append(LearningResource.embed)
+        return columns
+
+    def _parse_embed_vector(self, value: Any) -> list[float]:
+        if value in (None, ""):
+            return []
+        raw = value
+        if isinstance(value, str):
+            try:
+                raw = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw, list):
+            return []
+
+        vector: list[float] = []
+        for item in raw:
+            try:
+                vector.append(float(item))
+            except (TypeError, ValueError):
+                return []
+        return vector if any(component != 0 for component in vector) else []
+
+    def _normalized_embedding_matrix(self, vectors: list[list[float]]) -> np.ndarray:
+        if not vectors:
+            return np.empty((0, 0), dtype=np.float32)
+        matrix = np.asarray(vectors, dtype=np.float32)
+        if matrix.ndim != 2:
+            return np.empty((0, 0), dtype=np.float32)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        if np.any(norms == 0):
+            return np.empty((0, 0), dtype=np.float32)
+        return matrix / norms
+
+    def _cosine_similarity(self, left: list[float], right: list[float]) -> float:
+        if not left or not right:
+            return 0.0
+        if len(left) != len(right):
+            logger.warning(
+                "[resource_recommender] skip cosine similarity for dimension mismatch: %s vs %s",
+                len(left),
+                len(right),
+            )
+            return 0.0
+        left_array = np.asarray(left, dtype=np.float32)
+        right_array = np.asarray(right, dtype=np.float32)
+        left_norm = float(np.linalg.norm(left_array))
+        right_norm = float(np.linalg.norm(right_array))
+        if left_norm == 0 or right_norm == 0:
+            return 0.0
+        return float(np.dot(left_array, right_array) / (left_norm * right_norm))
 
     async def _ranking_tool(
         self,
@@ -1043,6 +1446,8 @@ class ResourceRecommenderAgent(BaseAgent):
             "reflection": self._reflection_for_output(reflection_result),
             "tool_trace": tool_results.get("tool_trace", []),
             "query_results": tool_results.get("query_results", []),
+            "candidate_store": tool_results.get("candidate_store", {}),
+            "unmatched_candidate_items": tool_results.get("candidate_store", {}).get("unmatched_items", []),
         }
 
     def _planning_from_plan(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -1068,6 +1473,7 @@ class ResourceRecommenderAgent(BaseAgent):
             "query_results": [],
             "ranked_resources": [],
             "tool_trace": [],
+            "candidate_store": self._empty_candidate_store_result(),
         }
 
     def _ensure_output_shape(self, output: dict[str, Any]) -> dict[str, Any]:
@@ -1099,6 +1505,15 @@ class ResourceRecommenderAgent(BaseAgent):
         query_results = [
             item for item in output.get("query_results", []) if isinstance(item, dict)
         ]
+        candidate_store = self._normalize_candidate_store_result(output.get("candidate_store"))
+        unmatched_candidate_items = [
+            str(item)
+            for item in self._as_list(
+                output.get("unmatched_candidate_items")
+                or candidate_store.get("unmatched_items")
+            )
+            if str(item).strip()
+        ]
 
         resource_list = output.get("resource_list")
         if not isinstance(resource_list, dict):
@@ -1110,8 +1525,14 @@ class ResourceRecommenderAgent(BaseAgent):
                 "sequence": sequence,
                 "tool_trace": tool_trace,
             }
+        resource_list["candidate_store"] = candidate_store
+        resource_list["unmatched_candidate_items"] = unmatched_candidate_items
 
         text_for_next = str(recommendation_text)
+        text_for_next = self._append_unmatched_candidate_notice(
+            text_for_next,
+            unmatched_candidate_items,
+        )
         return {
             "recommendation_text": text_for_next,
             # Downstream adapters:
@@ -1129,7 +1550,35 @@ class ResourceRecommenderAgent(BaseAgent):
             "sequence": sequence,
             "reflection": reflection,
             "tool_trace": tool_trace,
+            "candidate_store": candidate_store,
+            "unmatched_candidate_items": unmatched_candidate_items,
         }
+
+    def _normalize_candidate_store_result(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return self._empty_candidate_store_result()
+        normalized = self._empty_candidate_store_result()
+        for key in ("requested_items", "matched_items", "unmatched_items", "matched_resource_ids"):
+            normalized[key] = [
+                str(item)
+                for item in self._as_list(value.get(key))
+                if str(item).strip()
+            ]
+        normalized["matches"] = [
+            item
+            for item in self._as_list(value.get("matches"))
+            if isinstance(item, dict)
+        ]
+        return normalized
+
+    def _append_unmatched_candidate_notice(self, text: str, unmatched_items: list[str]) -> str:
+        if not unmatched_items:
+            return text
+        missing = [item for item in unmatched_items if item and item not in text]
+        if not missing:
+            return text
+        separator = "\n\n" if text else ""
+        return f"{text}{separator}另外，以下候选资源未在资源库中匹配到：{', '.join(missing)}。"
 
     def _normalize_resource(self, item: dict[str, Any]) -> dict[str, Any]:
         resource = {
@@ -1146,6 +1595,12 @@ class ResourceRecommenderAgent(BaseAgent):
             resource["rank"] = self._safe_int(item.get("rank"), 0)
         if item.get("ctr_score") is not None:
             resource["ctr_score"] = self._safe_float(item.get("ctr_score"), 0)
+        if item.get("similarity_score") is not None:
+            resource["similarity_score"] = self._safe_float(item.get("similarity_score"), 0)
+        if item.get("similarity_reason") is not None:
+            resource["similarity_reason"] = str(item.get("similarity_reason") or "")
+        if item.get("source_items") is not None:
+            resource["source_items"] = self._as_list(item.get("source_items"))
         return resource
 
     def _safe_int(self, value: Any, default: int) -> int:
