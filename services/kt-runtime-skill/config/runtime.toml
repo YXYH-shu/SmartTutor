@@ -1,0 +1,55 @@
+# KT Runtime Skill 配置文件
+# 当前版本只通过 REKT CLI、REKT JSON 数据集和 REKT checkpoint 推理。
+
+[model]
+# REKT JSON 数据集仍是 kp 粒度输出，skill_id 即 kp_id。
+num_skills = 348
+
+[runtime]
+backend = "rekt_cli"
+
+# 默认优先使用 GPU；如果 CUDA 不可用，REKT 推理自动回退到 CPU。
+device = "cuda:0"
+
+[rekt]
+cli_path = "scripts/kt_runtime/rekt_engine/cli.py"
+data_dir = "assets/rekt/dataset"
+checkpoint_path = "assets/rekt/checkpoint/rekt.pt"
+max_seq_len = 200
+hidden_dim = 128
+dropout = 0.4
+history_limit = 200
+allow_cpu_fallback = true
+
+[history]
+# 使用学生最近多少条作答历史参与推理。
+# 例如：
+# 300 表示最近 300 条
+# 80  表示最近 80 条
+# 50  表示最近 50 条
+#
+# 如果设为 0 或负数，则表示使用全部历史。
+max_interactions = 300
+
+# 历史截取策略：
+# recent = 只取最近 max_interactions 条，再恢复时间正序输入模型
+# all    = 忽略 max_interactions，直接使用全量历史
+selection = "recent"
+
+[prediction]
+# 默认目标。
+# all 表示预测全部有 REKT 题目映射的 kp；也可以在命令行中单独指定。
+default_targets = "all"
+
+[analysis]
+# 是否默认生成学情分析报告。
+enabled = true
+
+# 报告固定筛出多少个与上下文最相关的知识点。
+max_knowledge_points = 18
+
+# 报告最多给出多少条教学建议。
+max_suggestions = 4
+
+# 详细分析过程窗口大小。
+recent_window = 20

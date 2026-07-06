@@ -1,0 +1,17 @@
+{
+  "request_id": "kp-dkt-online-demo-001",
+  "task": "predict_correctness",
+  "student_trace": [
+    {"skill_id": 52, "correct": 1},
+    {"skill_id": 51, "correct": 0},
+    {"skill_id": 233, "correct": 1},
+    {"skill_id": 61, "correct": 1}
+  ],
+  "targets": [
+    {"skill_id": 51},
+    {"skill_id": 52},
+    {"skill_id": 233},
+    {"skill_id": 61}
+  ],
+  "device": "cuda:0"
+}

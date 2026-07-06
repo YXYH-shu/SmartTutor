@@ -17,6 +17,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过�
 - [数据库设计](#数据库设计)
 - [项目目录结构](#项目目录结构)
 - [快速启动](#快速启动)
+- [课题4.1 学情分析集成](#课题41-学情分析集成)
 - [开发进度](#开发进度)
 - [技术栈](#技术栈)
 
@@ -490,7 +491,8 @@ SmartTutor/
 │       ├── pages/                    # 页面组件
 │       │   ├── LoginPage.tsx         # 登录页（邮箱+密码表单）
 │       │   ├── RegisterPage.tsx      # 注册页（含密码强度指示器）
-│       │   └── DashboardPage.tsx     # 聊天主页（加载对话+消息）
+│       │   ├── DashboardPage.tsx     # 聊天主页（加载对话+消息）
+│       │   └── KtDiagnosisPage.tsx   # 课题4.1 学情分析 iframe 页面
 │       ├── components/               # UI 组件
 │       │   ├── layout/               # 布局组件
 │       │   │   ├── MainLayout.tsx    # 主布局（侧边栏+Header+内容区+右侧面板）
@@ -514,6 +516,17 @@ SmartTutor/
 │       └── styles/
 │           └── globals.css           # 全局样式（Tailwind 指令/自定义滚动条/动画/毛玻璃效果）
 │
+├── services/                          # 课题4.1 学情分析子服务
+│   ├── chat-agent/                    # 学情分析 ChatAgent 前后端一体子服务
+│   └── kt-runtime-skill/              # 内化 REKT 推理的 KT Skill
+│
+├── scripts/
+│   └── kt-topic4/                     # 课题4.1 本地启动与集成检查脚本
+│       ├── start_backend.sh
+│       ├── start_frontend.sh
+│       ├── start_chat_agent.sh
+│       └── check_kt_integration.sh
+│
 ├── 文档/                              # 课题文档
 │   ├── 安全监测智能体提示词.md         # 安全监测智能体提示词规范
 │   ├── 安全监测智能体提示词2.0.docx    # 安全监测智能体提示词 v2.0
@@ -523,6 +536,7 @@ SmartTutor/
 │   └── 课题4.1提示工程（学情分析+路径规划）@xza.docx  # 学情分析与路径规划提示工程
 │
 ├── docker-compose.yml                # Docker Compose 编排（MySQL + Backend + Frontend）
+├── 课题4.1学情分析启动说明.md          # 课题4.1 学情分析本地启动说明
 └── README.md
 ```
 
@@ -530,24 +544,25 @@ SmartTutor/
 
 ## 快速启动
 
-### 方式一：本地开发
+### 方式一：SmartTutor 主项目本地开发
 
 #### 1. 后端
 
 ```bash
-conda create -n tutor python=3.13 -y
-conda activate tutor
-cd backend && pip install -r requirements.txt
-
-# 数据库迁移
-alembic upgrade head
+conda activate kt
+pip install -r backend/requirements.txt
 
 # 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入 LLM API Key
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，填入 LLM API Key
 
-# 启动
-uvicorn app.main:app --reload --port 8000
+# 数据库迁移，首次启动前执行
+cd backend
+alembic upgrade head
+cd ..
+
+# 启动后端
+bash scripts/kt-topic4/start_backend.sh
 ```
 
 API 文档：`http://localhost:8000/docs`
@@ -555,13 +570,55 @@ API 文档：`http://localhost:8000/docs`
 #### 2. 前端
 
 ```bash
-cd frontend && npm install
-npm run dev    # http://localhost:5173
+cp frontend/.env.example frontend/.env
+
+cd frontend
+npm install
+cd ..
+
+bash scripts/kt-topic4/start_frontend.sh
 ```
 
-前端开发时需要后端运行在 `localhost:8000`（Vite 已配置代理）。
+前端地址：`http://localhost:3000`
 
-### 方式二：Docker 部署
+前端开发时需要后端运行在 `localhost:8000`。如果后端使用其他端口，需要在 `frontend/.env` 中设置 `VITE_API_URL`。
+
+### 方式二：课题4.1 学情分析集成
+
+课题4.1包含一个 ChatAgent 子服务和一个内化 REKT 的 KT Skill。启动 SmartTutor 主项目前端后，点击侧边栏“学情分析”即可通过 iframe 打开该模块。
+
+首次配置 ChatAgent：
+
+```bash
+cp services/chat-agent/.env.example services/chat-agent/.env
+# 编辑 services/chat-agent/.env，填入模型服务地址、API Key 和模型名
+```
+
+启动三个服务：
+
+```bash
+# 终端 1：SmartTutor 后端
+conda activate kt
+bash scripts/kt-topic4/start_backend.sh
+
+# 终端 2：SmartTutor 前端
+bash scripts/kt-topic4/start_frontend.sh
+
+# 终端 3：学情分析 ChatAgent 子服务
+bash scripts/kt-topic4/start_chat_agent.sh
+```
+
+默认地址：
+
+- SmartTutor 前端：`http://localhost:3000`
+- SmartTutor 后端文档：`http://localhost:8000/docs`
+- ChatAgent 子服务：`http://127.0.0.1:8910/`
+
+项目没有内置默认账号密码。本地测试时先在注册页创建账号，再登录使用。
+
+更完整的启动、端口覆盖和排查说明见 [课题4.1学情分析启动说明.md](课题4.1学情分析启动说明.md)。
+
+### 方式三：Docker 部署
 
 ```bash
 docker-compose up --build
@@ -616,6 +673,38 @@ alembic downgrade -1
 
 ---
 
+## 课题4.1 学情分析集成
+
+本仓库已内嵌课题4.1学情分析模块，采用低侵入 iframe 子服务方式接入：
+
+- `frontend/src/pages/KtDiagnosisPage.tsx`：SmartTutor 内的学情分析页面，负责嵌入 ChatAgent。
+- `services/chat-agent`：学情分析对话服务，提供 Web 页面、会话管理、执行过程展示和 Skill 调用。
+- `services/kt-runtime-skill`：KT/REKT 推理 Skill，内置推理代码、数据和 checkpoint。
+- `scripts/kt-topic4`：课题4.1专用启动与集成检查脚本。
+
+数据流：
+
+```text
+SmartTutor 侧边栏
+  -> /dashboard/kt-diagnosis
+  -> iframe 打开 ChatAgent
+  -> ChatAgent 调用 kt-runtime-skill
+  -> kt-runtime-skill 运行 REKT 推理并返回报告素材
+  -> ChatAgent 输出完整学情分析报告
+```
+
+嵌入模式下，ChatAgent 左侧测试场景和右侧执行过程默认收起，避免 SmartTutor 外层侧边栏、测试场景、聊天区、执行过程四栏同时展开导致聊天区过窄。
+
+集成检查：
+
+```bash
+bash scripts/kt-topic4/check_kt_integration.sh
+```
+
+详细启动说明见 [课题4.1学情分析启动说明.md](课题4.1学情分析启动说明.md)。
+
+---
+
 ## 开发进度
 
 | 阶段 | 内容 | 状态 |
@@ -632,7 +721,8 @@ alembic downgrade -1
 | 10 | 5 阶段安全管线（风险感知→意图识别→价值评估→教育引导→问题转化） | Done |
 | 11 | 安全条件路由（BLOCK/REFERRAL 短路、TRANSFORM 改写后继续流转） | Done |
 | 12 | 概念/技能/知识关系模型（6 张新表 + 关联关系） | Done |
-| 13 | 真实智能体接入（DKT、推荐工具链、匹配算法） | Planned |
+| 13 | 课题4.1 学情分析 iframe 子服务集成（ChatAgent + kt-runtime-skill） | Done |
+| 14 | 真实智能体接入（DKT、推荐工具链、匹配算法） | Planned |
 
 ---
 

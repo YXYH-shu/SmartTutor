@@ -5,6 +5,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/LoginPage';
 import RegisterPage from '@/pages/RegisterPage';
 import DashboardPage from '@/pages/DashboardPage';
+import KtDiagnosisPage from '@/pages/KtDiagnosisPage';
 
 /* ── Auth guard ─────────────────────────────────────────────── */
 function ProtectedRoute() {
@@ -42,6 +43,7 @@ export default function App() {
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat" element={<DashboardPage />} />
             <Route path="chat/:conversationId" element={<DashboardPage />} />
+            <Route path="kt-diagnosis" element={<KtDiagnosisPage />} />
           </Route>
         </Route>
 

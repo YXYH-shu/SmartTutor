@@ -1,0 +1,22 @@
+{
+  "request_id": "kp-dkt-demo-001",
+  "task": "predict_correctness",
+  "student_trace": [
+    {"skill_id": 52, "correct": 1},
+    {"skill_id": 51, "correct": 0},
+    {"skill_id": 233, "correct": 1},
+    {"skill_id": 61, "correct": 1},
+    {"skill_id": 71, "correct": 0}
+  ],
+  "targets": [
+    {"skill_id": 51},
+    {"skill_id": 52},
+    {"skill_id": 233},
+    {"skill_id": 61},
+    {"skill_id": 71}
+  ],
+  "device": "cuda:0",
+  "analysis_context": {
+    "history_context": "当前上下文关注电路、月相和力与运动。"
+  }
+}
