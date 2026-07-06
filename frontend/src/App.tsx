@@ -20,6 +20,10 @@ function GuestRoute() {
   return <Outlet />;
 }
 
+/* KT standalone 模式才挂载 iframe 入口;integrated 模式下 KT 直接走主对话流,
+   不需要独立路由 */
+const KT_STANDALONE = import.meta.env.VITE_KT_STANDALONE === 'true';
+
 /* ── App ────────────────────────────────────────────────────── */
 export default function App() {
   return (
@@ -43,7 +47,9 @@ export default function App() {
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat" element={<DashboardPage />} />
             <Route path="chat/:conversationId" element={<DashboardPage />} />
-            <Route path="kt-diagnosis" element={<KtDiagnosisPage />} />
+            {KT_STANDALONE && (
+              <Route path="kt-diagnosis" element={<KtDiagnosisPage />} />
+            )}
           </Route>
         </Route>
 
