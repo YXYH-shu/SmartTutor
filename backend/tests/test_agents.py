@@ -613,7 +613,7 @@ class TestAgentRegistry:
         assert "safety_monitor" in names
         assert "emotion_analyzer" in names
         assert "cognitive_diagnosis" in names
-        assert len(agents) == 8
+        assert len(agents) == 9  # 8 个教育智能体 + safety_monitor
 
     def test_get_agent(self):
         from app.services.agents import get_agent

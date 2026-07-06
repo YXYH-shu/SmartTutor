@@ -44,7 +44,7 @@ prompt_template: |
   {{current_message | default('未指定')}}
 
   ### 历史对话记录
-  {% for msg in recent_messages %}
+  {% for msg in recent_messages | default([]) %}
   - [{{msg.role}}]: {{msg.content}}
   {% endfor %}
 
