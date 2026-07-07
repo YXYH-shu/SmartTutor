@@ -84,7 +84,9 @@ class LLMClient:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        if thinking:
+        # thinking 显式开启时才传 extra_body。GLM-5 默认就会 reasoning，
+        # 不需要额外参数；只有非默认推理模型需要显式开启时才传。
+        if thinking and settings.llm.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         last_exc: Exception | None = None

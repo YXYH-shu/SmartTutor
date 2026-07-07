@@ -177,6 +177,11 @@ class BaseAgent(abc.ABC):
 
         Default: attach user profile if user_id is present.
         """
+        # 兜底:多数 prompt 模板会迭代 recent_messages,缺值时 Jinja StrictUndefined 会抛错。
+        # 这里在入口统一补 [] ,防止首轮对话或 free_composition 路径下 agent 失败。
+        input_data.setdefault("recent_messages", [])
+        input_data.setdefault("current_message", input_data.get("message", ""))
+
         user_id = input_data.get("user_id") or context.get("user_id")
         if user_id:
             async with AsyncSessionLocal() as session:

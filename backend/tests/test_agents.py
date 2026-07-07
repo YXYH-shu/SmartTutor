@@ -202,28 +202,328 @@ class TestResourceRecommender:
     async def test_recommend(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent
 
-        expected = {
-            "resources": [
+        plan_response = {
+            "need_tool": True,
+            "target_knowledge": ["Python函数"],
+            "target_count": 1,
+            "recall_strategy": "按知识点召回后排序",
+            "ranking_criteria": ["personality"],
+            "tool_calls": [
                 {
-                    "id": "r1",
-                    "type": "video",
-                    "title": "Python函数入门",
-                    "url": "https://example.com/python-func",
-                    "difficulty": "初级",
+                    "tool_name": "SqlRetrievalTool",
+                    "input": {"sql": "SELECT id FROM learning_resources WHERE name LIKE '%Python函数%'"},
+                },
+                {
+                    "tool_name": "RankingTool",
+                    "input": {"schema": "personality", "num": 1},
                 }
             ],
-            "rationale": "视频资源适合初学者建立直观理解",
-            "sequence": ["先看视频", "再做练习"],
         }
-        _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(expected))
-        _patch_llm.validate_json_response = AsyncMock(return_value=expected)
+        reflection_response = {
+            "passed": True,
+            "issues": [],
+            "suggestion": "",
+            "coverage_score": 0.8,
+            "difficulty_match": 0.8,
+            "diversity_score": 0.8,
+        }
+        summary_response = {
+            "recommendation_text": "已完成 Python 函数资源推荐流程。",
+            "planning": {
+                "recall_strategy": "按知识点召回后排序",
+                "ranking_criteria": ["personality"],
+                "target_count": 1,
+            },
+            "resources": [],
+            "rationale": "根据计划调用工具后汇总。",
+            "sequence": [],
+            "reflection": {
+                "coverage_score": 0.8,
+                "difficulty_match": 0.8,
+                "diversity_score": 0.8,
+                "improvement_suggestion": "",
+            },
+            "tool_trace": [],
+        }
+        _patch_llm.chat_completion = AsyncMock(
+            side_effect=[
+                _mock_llm_response(plan_response),
+                _mock_llm_response(reflection_response),
+                _mock_llm_response(summary_response),
+            ]
+        )
 
         agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent._run_select_sql = AsyncMock(return_value=[{"id": "res-1"}])
+        agent._fetch_resource_details = AsyncMock(
+            return_value={
+                "res-1": {
+                    "id": "res-1",
+                    "name": "Python 函数入门视频",
+                    "type": "video",
+                    "url": "https://example.com/python-functions",
+                    "difficult": 0.3,
+                    "time_need": 15,
+                    "knowledge_tags": ["Python函数"],
+                }
+            }
+        )
         result = await agent.execute(
             {"target_knowledge": "Python函数", "difficulty": "初级", "learning_style": "视觉"},
             context={"conversation_id": "conv-6"},
         )
-        assert result["output"]["resources"][0]["type"] == "video"
+        assert result["output"]["planning"]["target_count"] == 1
+        assert result["output"]["tool_trace"][0]["tool"] == "SqlRetrievalTool"
+        assert result["output"]["tool_trace"][1]["tool"] == "RankingTool"
+        assert result["output"]["response_text"] == result["output"]["recommendation_text"]
+        assert result["output"]["content"] == result["output"]["recommendation_text"]
+        assert result["output"]["raw_response"] == result["output"]["recommendation_text"]
+        assert result["output"]["final_response"] == result["output"]["recommendation_text"]
+        assert result["output"]["resource_list"]["resources"] == result["output"]["resources"]
+        assert "query_results" in result["output"]["resource_list"]
+        assert _patch_llm.chat_completion.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_persists_recommendation_after_summary(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        class DummyAsyncSession:
+            def __init__(self):
+                self.added = []
+                self.committed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def add(self, item):
+                self.added.append(item)
+
+            async def commit(self):
+                self.committed = True
+
+        plan_response = {
+            "need_tool": False,
+            "question": "recommend one resource",
+            "final_answer": "",
+            "target_knowledge": ["photosynthesis"],
+            "target_count": 1,
+        }
+        summary_response = {
+            "recommendation_text": "Try the photosynthesis intro video.",
+            "planning": {
+                "recall_strategy": "summary resource",
+                "ranking_criteria": ["personality"],
+                "target_count": 1,
+            },
+            "resources": [
+                {
+                    "id": "res-1",
+                    "type": "video",
+                    "title": "Photosynthesis Intro",
+                    "url": "https://example.com/photosynthesis",
+                    "difficulty": "beginner",
+                    "time_needed_min": 12,
+                    "knowledge_tags": ["photosynthesis"],
+                    "recommend_reason": "Matches the current question.",
+                }
+            ],
+            "rationale": "A short beginner video fits the request.",
+            "sequence": ["Watch Photosynthesis Intro"],
+            "reflection": {
+                "coverage_score": 0.9,
+                "difficulty_match": 0.9,
+                "diversity_score": 0.8,
+                "improvement_suggestion": "",
+            },
+            "tool_trace": [{"tool": "SummaryOnly", "status": "skipped"}],
+        }
+        _patch_llm.chat_completion = AsyncMock(
+            side_effect=[
+                _mock_llm_response(plan_response),
+                _mock_llm_response(summary_response),
+            ]
+        )
+
+        dummy_session = DummyAsyncSession()
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent.enrich_input = AsyncMock(side_effect=lambda data, context: data)
+        agent._log_execution = AsyncMock()
+        agent.post_process = AsyncMock()
+
+        with patch("app.database.AsyncSessionLocal", return_value=dummy_session):
+            result = await agent.execute(
+                {
+                    "user_id": "user-1",
+                    "conversation_id": "conv-input",
+                    "current_message": "Please recommend a photosynthesis video.",
+                    "target_knowledge": ["photosynthesis"],
+                },
+                context={"conversation_id": "conv-ctx", "user_id": "user-1"},
+            )
+
+        assert dummy_session.committed is True
+        assert len(dummy_session.added) == 1
+
+        record = dummy_session.added[0]
+        assert record.learner_id == "user-1"
+        assert record.session_id == "conv-ctx"
+        assert record.rec_num == 1
+        assert record.rec_resources["resources"][0]["id"] == "res-1"
+        assert result["output"]["recommendation_id"] == record.id
+        assert result["output"]["resource_list"]["recommendation_id"] == record.id
+
+    @pytest.mark.asyncio
+    async def test_query_tool_executes_readonly_sql(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent._run_select_sql = AsyncMock(return_value=[{"total": 2}])
+
+        result = await agent._query_tool(
+            {"sql": "SELECT COUNT(*) AS total FROM learning_resources"},
+            {},
+        )
+
+        assert result == [{"total": 2}]
+        agent._run_select_sql.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_sql_retrieval_tool_returns_resource_candidates(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent._run_select_sql = AsyncMock(return_value=[{"id": "res-1"}])
+        agent._fetch_resource_details = AsyncMock(
+            return_value={
+                "res-1": {
+                    "id": "res-1",
+                    "name": "Python 函数入门视频",
+                    "type": "video",
+                    "url": "https://example.com/python-functions",
+                    "difficult": 0.3,
+                    "time_need": 15,
+                    "knowledge_tags": ["Python函数"],
+                }
+            }
+        )
+
+        result = await agent._sql_retrieval_tool(
+            {"sql": "SELECT id FROM learning_resources WHERE type LIKE '%video%'"},
+            {},
+        )
+
+        assert result[0]["id"] == "res-1"
+        assert result[0]["title"] == "Python 函数入门视频"
+        assert result[0]["difficulty"] == "初级"
+
+    @pytest.mark.asyncio
+    async def test_ranking_tool_sorts_and_limits(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent._predict_ctr_scores = AsyncMock(return_value=[0.99, 0.01, 0.5])
+        candidates = [
+            {"id": "slow", "title": "慢资源", "time_needed_min": 45},
+            {"id": "fast", "title": "快资源", "time_needed_min": 10},
+            {"id": "medium", "title": "中等资源", "time_needed_min": 20},
+        ]
+
+        result = await agent._ranking_tool(
+            {"schema": "time_need", "num": 2},
+            candidates,
+            {},
+        )
+
+        assert [item["id"] for item in result] == ["fast", "medium"]
+        agent._predict_ctr_scores.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_personality_ranking_uses_ctr_scores(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent._predict_ctr_scores = AsyncMock(return_value=[0.2, 0.9, 0.5])
+        candidates = [
+            {"id": "a", "title": "A"},
+            {"id": "b", "title": "B"},
+            {"id": "c", "title": "C"},
+        ]
+
+        result = await agent._ranking_tool(
+            {"schema": "personality", "num": 2},
+            candidates,
+            {},
+        )
+
+        assert [item["id"] for item in result] == ["b", "c"]
+        assert result[0]["ctr_score"] == 0.9
+        agent._predict_ctr_scores.assert_awaited_once()
+
+    def test_resource_ranking_predictor_matches_algorithm_input_shape(self):
+        from app.services.resource_ranking_predictor import ResourceRankingPredictor
+
+        predictor = ResourceRankingPredictor(config={"enabled": False})
+        user_fids = {fid for fid, _, _ in predictor.schema["user_int"].entries}
+
+        assert not {200, 201, 202, 203} & user_fids
+
+        batch = predictor.pack_instances(
+            [
+                {
+                    "user_features": {"user_id": 1, "current_level": 2},
+                    "item_features": {"resource_id": "res-uuid", "resource_type": "video"},
+                    "sequence_features": {"interaction": {}},
+                    "context_features": {},
+                }
+            ]
+        )
+
+        item_id_offset, _ = predictor.schema["item_int"].offset_length(101)
+        item_id_vocab = predictor.schema["item_int"].vocab_at(item_id_offset)
+        assert "cross_dense_feats" not in batch
+        assert len(batch["user_int_feats"][0]) == predictor.schema["user_int"].total_dim
+        assert len(batch["user_dense_feats"][0]) == predictor.schema["user_dense"].total_dim
+        assert 0 < batch["item_int_feats"][0][item_id_offset] < item_id_vocab
+
+    @pytest.mark.asyncio
+    async def test_reflection_rejects_insufficient_recommendations(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        _patch_llm.chat_completion = AsyncMock(
+            return_value=_mock_llm_response(
+                {
+                    "passed": True,
+                    "issues": [],
+                    "suggestion": "",
+                    "coverage_score": 1,
+                    "difficulty_match": 1,
+                    "diversity_score": 1,
+                }
+            )
+        )
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+
+        reflection, _ = await agent._reflection(
+            plan={
+                "need_tool": True,
+                "target_count": 2,
+                "tool_calls": [
+                    {"tool_name": "SqlRetrievalTool", "input": {"sql": "SELECT id FROM learning_resources"}},
+                    {"tool_name": "RankingTool", "input": {"schema": "personality", "num": 2}},
+                ],
+            },
+            tool_results={
+                "ranked_resources": [{"id": "res-1", "title": "资源1"}],
+                "tool_trace": [],
+            },
+            input_data={"current_message": "推荐两个资源", "recent_messages": []},
+        )
+
+        assert reflection["passed"] is False
+        assert "目标 2 个，当前仅 1 个" in reflection["issues"][0]
 
 
 class TestStudyBuddy:
@@ -313,7 +613,7 @@ class TestAgentRegistry:
         assert "safety_monitor" in names
         assert "emotion_analyzer" in names
         assert "cognitive_diagnosis" in names
-        assert len(agents) == 8
+        assert len(agents) == 9  # 8 个教育智能体 + safety_monitor
 
     def test_get_agent(self):
         from app.services.agents import get_agent

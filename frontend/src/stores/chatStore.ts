@@ -10,8 +10,13 @@ interface ChatState {
   streamingContent: string;
   abortController: AbortController | null;
   currentStep: string | null;
+  /** 流式期间的思考步骤,对话结束后清空(转移到 message.thinking_steps) */
   thinkingSteps: ThinkingStep[];
   thinkingExpanded: boolean;
+  /** 当前正在执行的 agent 内部名(后端 SSE step 字段),对话中实时更新 */
+  currentAgent: string | null;
+  /** 累积 agent 输出,按 agent name 分桶;不随对话结束清空,供右侧面板持续展示 */
+  agentTrace: Record<string, { content: string; label: string; updatedAt: string }>;
 
   setConversations: (convs: Conversation[]) => void;
   addConversation: (conv: Conversation) => void;
@@ -45,6 +50,8 @@ const initialState = {
   currentStep: null as string | null,
   thinkingSteps: [] as ThinkingStep[],
   thinkingExpanded: true,
+  currentAgent: null as string | null,
+  agentTrace: {} as Record<string, { content: string; label: string; updatedAt: string }>,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -88,7 +95,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   finishStreaming: () =>
     set((s) => {
-      // Mark any remaining running steps as completed
+      // 把所有残留 running 状态的 step 标记为 completed
       const finalSteps = s.thinkingSteps.map((step) =>
         step.status === 'running' ? { ...step, status: 'completed' as const } : step,
       );
@@ -104,7 +111,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         isStreaming: false,
         streamingContent: '',
         currentStep: null,
+        currentAgent: null,
         abortController: null,
+        // 流式期间数据清空(已转移到 streamMsg.thinking_steps),
+        // 但 agentTrace 保留 — 右侧面板持续展示
         thinkingSteps: [],
         messages: [...s.messages, streamMsg],
       };
@@ -116,11 +126,19 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   setCurrentStep: (currentStep) => set({ currentStep }),
 
   addThinkingStep: (step) =>
-    set((s) => ({ thinkingSteps: [...s.thinkingSteps, step] })),
+    set((s) => {
+      // step.step 是后端推的 agent 内部名(如 "cognitive_diagnosis"),
+      // 实时更新 currentAgent 让右侧面板自动跟随
+      const agentName = step.step && step.step.length > 0 ? step.step : null;
+      return {
+        thinkingSteps: [...s.thinkingSteps, step],
+        currentAgent: agentName ?? s.currentAgent,
+      };
+    }),
 
   completeRunningStep: (content, step, label) =>
     set((s) => {
-      // Find the last running step and update it to completed with content
+      // 找到最后一条 running step,改为 completed
       const steps = [...s.thinkingSteps];
       for (let i = steps.length - 1; i >= 0; i--) {
         if (steps[i].status === 'running') {
@@ -128,10 +146,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
       }
-      return { thinkingSteps: steps };
+      // 累积到 agentTrace(按 agent name 分桶),对话结束后不清空
+      const agentName = step && step.length > 0 ? step : null;
+      const agentTrace = { ...s.agentTrace };
+      if (agentName) {
+        agentTrace[agentName] = {
+          content,
+          label: label || agentName,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return { thinkingSteps: steps, agentTrace, currentAgent: agentName ?? s.currentAgent };
     }),
 
-  clearThinking: () => set({ thinkingSteps: [] }),
+  clearThinking: () =>
+    set({ thinkingSteps: [], currentAgent: null }),
+
   toggleThinkingExpanded: () => set((s) => ({ thinkingExpanded: !s.thinkingExpanded })),
 
   cancelStream: () => {
@@ -139,7 +169,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     if (abortController && isStreaming) {
       abortController.abort();
     }
-    set({ isStreaming: false, streamingContent: '', currentStep: null, abortController: null, thinkingSteps: [] });
+    // 注意:agentTrace 不清空,保留最近一次诊断结果供面板展示
+    set({ isStreaming: false, streamingContent: '', currentStep: null, currentAgent: null, abortController: null, thinkingSteps: [] });
   },
 
   reset: () => set(initialState),

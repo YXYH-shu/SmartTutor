@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus,
   MessageSquare,
@@ -9,6 +9,7 @@ import {
   User,
   BookOpen,
   Lightbulb,
+  BarChart3,
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
@@ -20,6 +21,7 @@ import { toast } from 'sonner';
 
 export function Sidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuthStore();
   const {
     conversations,
@@ -35,6 +37,7 @@ export function Sidebar() {
   const [editTitle, setEditTitle] = useState('');
 
   const grouped = groupByDate(conversations);
+  const ktDiagnosisActive = location.pathname.startsWith('/dashboard/kt-diagnosis');
 
   const handleNew = async () => {
     try {
@@ -50,6 +53,10 @@ export function Sidebar() {
   const handleSelect = (id: string) => {
     setCurrentConversation(id);
     navigate(`/dashboard/chat/${id}`);
+  };
+
+  const handleKtDiagnosis = () => {
+    navigate('/dashboard/kt-diagnosis');
   };
 
   const handleDelete = async (id: string) => {
@@ -117,6 +124,27 @@ export function Sidebar() {
           新建对话
         </button>
       </div>
+
+      {/* Modules — 仅在 KT standalone 模式下显示 iframe 入口 */}
+      {import.meta.env.VITE_KT_STANDALONE === 'true' && (
+        <div className="px-2 pb-2">
+          <p className="px-2 py-1.5 text-[11px] font-medium text-gray-500 tracking-wide">
+            功能模块
+          </p>
+          <button
+            onClick={handleKtDiagnosis}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-all duration-200',
+              ktDiagnosisActive
+                ? 'bg-primary-500/10 text-primary-300'
+                : 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200',
+            )}
+          >
+            <BarChart3 size={14} className="shrink-0 opacity-60" />
+            <span className="flex-1 truncate">学情分析</span>
+          </button>
+        </div>
+      )}
 
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto px-2 scrollbar-thin">

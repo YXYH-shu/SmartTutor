@@ -1,0 +1,27 @@
+{
+  "request_id": "student-analysis-demo-001",
+  "task": "predict_correctness",
+  "student_trace": [
+    {"skill_id": 52, "correct": 1},
+    {"skill_id": 51, "correct": 0},
+    {"skill_id": 233, "correct": 1},
+    {"skill_id": 61, "correct": 1},
+    {"skill_id": 71, "correct": 0},
+    {"skill_id": 167, "correct": 1},
+    {"skill_id": 168, "correct": 1}
+  ],
+  "targets": [
+    {"skill_id": 51},
+    {"skill_id": 52},
+    {"skill_id": 53},
+    {"skill_id": 167},
+    {"skill_id": 168},
+    {"skill_id": 233},
+    {"skill_id": 61},
+    {"skill_id": 71}
+  ],
+  "device": "cuda:0",
+  "analysis_context": {
+    "history_context": "学生最近在学电路、植物生长、月相和力与运动，对闭合回路、月相顺序、持续运动是否一定持续受力、控制变量解释不稳定。"
+  }
+}

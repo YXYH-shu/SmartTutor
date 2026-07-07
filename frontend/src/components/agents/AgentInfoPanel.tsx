@@ -1,7 +1,7 @@
 import { X, Cpu } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useChatStore } from '@/stores/chatStore';
-import { AGENT_CONFIGS, AGENT_DISPLAY_ORDER, NODE_TO_AGENT } from '@/data/agentConfigs';
+import { AGENT_CONFIGS, AGENT_DISPLAY_ORDER } from '@/data/agentConfigs';
 import { AgentOverview } from './AgentOverview';
 import { AgentLLMConfig } from './AgentLLMConfig';
 import { AgentDesignShowcase } from './AgentDesignShowcase';
@@ -10,17 +10,20 @@ export function AgentInfoPanel() {
   const selectedAgent = useUIStore((s) => s.selectedAgent);
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
   const setSelectedAgent = useUIStore((s) => s.setSelectedAgent);
+  // 直接用后端 SSE 推的 step 字段(agent 内部名)匹配,不再需要 NODE_TO_AGENT 映射
   const thinkingSteps = useChatStore((s) => s.thinkingSteps);
 
   const agent = AGENT_CONFIGS[selectedAgent];
   if (!agent) return null;
 
-  const hasAnyRunning = thinkingSteps.some((s) => s.status === 'running');
-  const isActive =
-    thinkingSteps.some((step) => {
-      const mapped = NODE_TO_AGENT[step.step];
-      return mapped === selectedAgent && step.status === 'running';
-    }) || (hasAnyRunning && thinkingSteps.length > 0);
+  // isActive 判断:后端推的 step.step 已经是 agent 内部名(如 "cognitive_diagnosis"),
+  // 直接对比 selectedAgent。空 step 字段(仅有 label)时退化为 label.includes
+  const isActive = thinkingSteps.some(
+    (step) =>
+      step.status === 'running' &&
+      (step.step === selectedAgent ||
+        (!step.step && step.label?.includes(agent.displayName))),
+  );
 
   const close = () => setRightPanelOpen(false);
 

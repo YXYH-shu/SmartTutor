@@ -35,7 +35,7 @@ prompt_template: |
   - 情感强度: {{emotion_intensity | default('未知')}}
 
   ## 最近对话（最近5轮）
-  {% for msg in recent_messages %}
+  {% for msg in recent_messages | default([]) %}
   [{{msg.role}}]: {{msg.content}}
   {% endfor %}
 

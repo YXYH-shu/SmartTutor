@@ -5,6 +5,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/LoginPage';
 import RegisterPage from '@/pages/RegisterPage';
 import DashboardPage from '@/pages/DashboardPage';
+import KtDiagnosisPage from '@/pages/KtDiagnosisPage';
 
 /* ── Auth guard ─────────────────────────────────────────────── */
 function ProtectedRoute() {
@@ -18,6 +19,10 @@ function GuestRoute() {
   if (isAuthenticated) return <Navigate to="/dashboard/chat" replace />;
   return <Outlet />;
 }
+
+/* KT standalone 模式才挂载 iframe 入口;integrated 模式下 KT 直接走主对话流,
+   不需要独立路由 */
+const KT_STANDALONE = import.meta.env.VITE_KT_STANDALONE === 'true';
 
 /* ── App ────────────────────────────────────────────────────── */
 export default function App() {
@@ -42,6 +47,9 @@ export default function App() {
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat" element={<DashboardPage />} />
             <Route path="chat/:conversationId" element={<DashboardPage />} />
+            {KT_STANDALONE && (
+              <Route path="kt-diagnosis" element={<KtDiagnosisPage />} />
+            )}
           </Route>
         </Route>
 
