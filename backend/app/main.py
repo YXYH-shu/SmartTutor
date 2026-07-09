@@ -49,6 +49,22 @@ async def lifespan(app: FastAPI):
     agents = list_agents()
     logging.getLogger(__name__).info("Registered %d agents: %s", len(agents), [a["name"] for a in agents])
 
+    # Pre-load CTR ranking model so the first recommendation request is not
+    # stuck on torch + state_dict load (typically 1-3s). Failure is
+    # non-fatal: we log a warning and let it lazy-load later.
+    try:
+        from app.services.resource_ranking_predictor import get_resource_ranking_predictor
+        predictor = get_resource_ranking_predictor()
+        if predictor.enabled:
+            predictor.ensure_loaded()
+            logging.getLogger(__name__).info("CTR ranking model preloaded successfully")
+        else:
+            logging.getLogger(__name__).info("CTR ranking model disabled, skip preload")
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "CTR ranking model preload failed (will lazy-load on first request): %s", exc
+        )
+
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────

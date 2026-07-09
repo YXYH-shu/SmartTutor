@@ -87,7 +87,7 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
 
         # Emit step event before agent runs
         if _step_queue is not None:
-            await _step_queue.put({"type": "step", "label": f"正在运行{agent_label}"})
+            await _step_queue.put({"type": "step", "label": f"正在运行{agent_label}", "step": name})
 
         logger.info("[stage_executor] running agent: %s", name)
         agent = get_agent(name)
@@ -96,6 +96,8 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         input_data: dict[str, Any] = {**ctx}
         input_data.setdefault("user_id", state.get("user_id", ""))
         input_data.setdefault("conversation_id", state.get("conversation_id", ""))
+        # KT 模型用 student_id 索引数据集,项目惯例用 user_id 兜底当 student_id
+        input_data.setdefault("student_id", state.get("user_id", ""))
 
         messages = state.get("messages", [])
         input_data["message_history"] = [
@@ -178,6 +180,8 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             context={
                 "conversation_id": state.get("conversation_id", ""),
                 "user_id": state.get("user_id", ""),
+                "student_id": state.get("user_id", ""),
+                "turn_id": (state.get("context") or {}).get("turn_id"),
             },
         )
 
@@ -190,7 +194,9 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         # Emit thinking event after agent completes
         if _step_queue is not None:
             try:
-                thinking_payload = {"agent": agent_label, "agent_output": output}
+                # 铺平 output 到顶层,与 engine._extract_thinking(execute_agent) 路径对齐
+                # 前端 AgentDetailDrawer 用 getValueByPath('knowledge_states') 等顶层路径取字段
+                thinking_payload = output if isinstance(output, dict) else {"output": output}
                 await _step_queue.put({
                     "type": "thinking",
                     "content": _json.dumps(thinking_payload, ensure_ascii=False, default=str),

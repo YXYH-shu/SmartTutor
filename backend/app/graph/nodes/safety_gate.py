@@ -109,6 +109,8 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
         # Replace the user message with the transformed version
         updates["messages"] = [HumanMessage(content=result.transformed_query)]
         updates["context"] = ctx
+        # 触发了转换 → 本轮重点标记 safety_monitor
+        updates["pre_focus"] = ["safety_monitor"]
 
     elif result.action in ("SOFT_BLOCK", "HARD_BLOCK", "REFERRAL"):
         logger.warning(
@@ -117,6 +119,8 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
         )
         updates["safety_blocked_response"] = result.blocked_response
         updates["context"] = ctx
+        # 拦截场景 → 本轮重点标记 safety_monitor
+        updates["pre_focus"] = ["safety_monitor"]
 
     _trace.debug("[%s] NODE_EXIT  safety_gate safety_action=%s", _tid, result.action)
     return updates

@@ -1,3 +1,5 @@
+@import './tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,21 +8,22 @@
 @layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(96, 165, 250, 0.15) transparent;
+    scrollbar-color: var(--color-border-subtle) transparent;
   }
   *::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+    width: 4px;
+    height: 4px;
   }
   *::-webkit-scrollbar-track {
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background-color: rgba(96, 165, 250, 0.15);
+    background-color: var(--color-border-subtle);
     border-radius: 999px;
   }
-  .dark *::-webkit-scrollbar-thumb {
-    background-color: rgba(96, 165, 250, 0.2);
+  /* .dark 选择器在 uiStore 改 data-theme 后失效,改为属性选择器 */
+  [data-theme='dark'] *::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
   }
 }
 
@@ -40,30 +43,48 @@
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-[#09090b] text-gray-100 transition-colors duration-300;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-color: var(--color-bg-base);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
+    font-feature-settings: 'ss01', 'cv11';
+    font-variant-numeric: tabular-nums;
+    transition: background-color 200ms var(--ease-standard), color 200ms var(--ease-standard);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /* Noise texture overlay —— 固定层、不阻挡交互 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.04; /* Dark 默认 */
+  }
+  [data-theme='light'] body::before {
+    opacity: 0.025;
+  }
+
+  /* 方案要求所有分隔线 0.5px(Retina 屏 = 1 物理像素)。
+     通过 tailwind.config.js 的 borderWidth.DEFAULT = 0.5px 实现,
+     只让显式用了 `border` 类的元素是 0.5px,不给所有元素默认加 border。 */
 }
 
 /* ── Heading utility ─────────────────────────────────────────── */
 @layer utilities {
   .font-heading {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-display);
     font-weight: 700;
-    letter-spacing: -0.025em;
+    letter-spacing: var(--tracking-display);
   }
 }
 
-/* ── Dark premium background ─────────────────────────────────── */
+/* ── Premium background (token-driven) ───────────────────────── */
 @layer utilities {
   .bg-premium {
-    background-color: #09090b;
-    background-image:
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.08), transparent),
-      radial-gradient(ellipse 60% 40% at 80% 60%, rgba(99, 102, 241, 0.04), transparent);
+    background-color: var(--color-bg-base);
   }
 }
 
@@ -81,10 +102,7 @@
   @apply my-2 rounded-lg;
 }
 .prose code:not(pre code) {
-  @apply rounded px-1.5 py-0.5 text-sm;
-}
-.prose code:not(pre code) {
-  @apply bg-primary-500/10 text-primary-300;
+  @apply rounded-sm px-1.5 py-0.5 text-14 bg-accent-soft text-accent;
 }
 .prose p {
   @apply my-1;
@@ -93,16 +111,16 @@
   @apply my-1;
 }
 .prose blockquote {
-  @apply border-l-4 border-primary-500/40 pl-4 italic text-gray-400;
+  @apply border-l-4 border-accent/40 pl-4 italic text-text-secondary;
 }
 .prose table {
-  @apply my-2 w-full text-sm;
+  @apply my-2 w-full text-14;
 }
 .prose th {
-  @apply bg-white/5 px-3 py-1.5 text-left font-medium;
+  @apply bg-bg-elevated px-3 py-1.5 text-left font-medium;
 }
 .prose td {
-  @apply border-t border-white/5 px-3 py-1.5;
+  @apply border-t border-border-subtle px-3 py-1.5;
 }
 
 /* ── Animations ──────────────────────────────────────────────── */
@@ -142,37 +160,33 @@
 
 /* ── Skeleton loader ─────────────────────────────────────────── */
 .skeleton {
-  @apply animate-pulse rounded bg-white/5;
+  @apply animate-pulse rounded-sm bg-bg-elevated;
 }
 
 /* ── Glass morphism ──────────────────────────────────────────── */
 @layer utilities {
   .glass {
-    @apply bg-white/[0.03] backdrop-blur-2xl;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    @apply backdrop-blur-2xl;
+    background-color: var(--color-bg-overlay);
+    box-shadow: inset 0 0 0 1px var(--color-border-subtle);
   }
   .glass-strong {
-    @apply bg-white/[0.05] backdrop-blur-2xl;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    @apply backdrop-blur-2xl;
+    background-color: var(--color-bg-overlay);
+    box-shadow: inset 0 0 0 1px var(--color-border-strong);
   }
 }
 
 /* ── Shadow system for dark premium ──────────────────────────── */
 @layer utilities {
   .shadow-soft {
-    box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.3),
-      0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--elevation-2);
   }
   .shadow-elevated {
-    box-shadow:
-      0 2px 4px rgba(0, 0, 0, 0.3),
-      0 8px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--elevation-3);
   }
   .shadow-float {
-    box-shadow:
-      0 4px 8px rgba(0, 0, 0, 0.3),
-      0 12px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--elevation-4);
   }
 }
 
@@ -182,7 +196,7 @@
   100% { background-position: 200% 0; }
 }
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 25%, rgba(96, 165, 250, 0.04) 50%, transparent 75%);
+  background: linear-gradient(90deg, transparent 25%, var(--color-accent-soft) 50%, transparent 75%);
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
 }
@@ -198,7 +212,7 @@
     inset: 0;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(135deg, theme('colors.primary.500'), theme('colors.primary.800'));
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-glow));
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
@@ -221,9 +235,45 @@
 /* ── Glow effects ────────────────────────────────────────────── */
 @layer utilities {
   .glow-primary {
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.06);
+    box-shadow: 0 0 20px var(--color-accent-glow), 0 0 60px var(--color-accent-soft);
   }
   .glow-primary-sm {
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 10px var(--color-accent-glow);
+  }
+  /* 暖金呼吸光晕(token-驱动,跟随主题) */
+  .glow-accent {
+    box-shadow:
+      0 0 0 2px var(--color-accent-soft),
+      0 0 12px var(--color-accent-glow),
+      0 0 32px var(--color-accent-glow);
+  }
+}
+
+/* ── Breathe 呼吸动画(全局唯一活跃,通过 chatStore.activeNodeId 互斥) ── */
+@keyframes breathe {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px var(--color-accent-glow));
+  }
+  50% {
+    transform: scale(1.12);
+    filter: drop-shadow(0 0 12px var(--color-accent-glow));
+  }
+}
+.animate-breathe {
+  animation: breathe var(--duration-breath, 2400ms) var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)) infinite;
+}
+
+/* ── Flow 路径流光动画(认知地图轨迹重播) ── */
+@keyframes flow-stroke {
+  0% { stroke-dashoffset: var(--flow-len, 1000); }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* ── 缓动 backdrop blur 工具类(避免 Tailwind 内置 blur 档位不齐) ── */
+@layer utilities {
+  .backdrop-blur-24 {
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
   }
 }

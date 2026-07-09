@@ -37,11 +37,17 @@ async def response_assembler(state: TutorState) -> dict[str, Any]:
     blocked = state.get("safety_blocked_response")
     if blocked:
         logger.info("[response_assembler] using safety-blocked response")
-        return {
+        # 短路场景：decide 没跑，pre_focus 仍是临时评分；转发到 focus_agents
+        # 让 done 事件能拿到重点 agent。
+        pre_focus = list(state.get("pre_focus") or [])
+        updates: dict[str, Any] = {
             "final_response": blocked,
             "messages": [AIMessage(content=blocked)],
             "requires_user_input": True,
         }
+        if pre_focus and not state.get("focus_agents"):
+            updates["focus_agents"] = pre_focus[:2]
+        return updates
 
     final = state.get("final_response")
 

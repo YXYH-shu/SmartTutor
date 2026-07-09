@@ -75,9 +75,14 @@ prompt_template: |
     "target_workflow": "流程ID或null（switch_stage时必填）",
     "target_stage": "阶段ID或null",
     "agent_sequence": ["agent1", "agent2"],
+    "focus_agents": ["本轮最关键的1-2个agent内部名（从agent_sequence里挑）"],
     "reasoning": "决策理由（一句话）"
   }
   ```
+
+  **focus_agents 说明**：从 `agent_sequence` 中挑选本轮对回复贡献最大的 1-2 个 agent（按重要性排序）。
+  留空数组 `[]` 表示无明显重点；后端会做上限 2 个的去重。
+  **禁止选择 knowledge_responder**：它是聚合节点（stage 内内容生成节点），非独立诊断 agent，不能作为 focus_agents。
 
 output_schema:
   type: object
@@ -92,6 +97,11 @@ output_schema:
     agent_sequence:
       type: array
       items: {type: string}
+    focus_agents:
+      type: array
+      description: "本轮最关键的 1-2 个 agent（agent_sequence 子集）；后端会去重并截断到 2 个；禁止包含 knowledge_responder（聚合节点）"
+      items: {type: string}
+      maxItems: 2
     reasoning:
       type: string
   required: ["decision", "agent_sequence", "reasoning"]

@@ -67,6 +67,15 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
     ctx = {**(state.get("context") or {})}
     ctx["emotion_analyzer"] = output
 
+    # 评分：情绪强度高 → 本轮重点标记 emotion_analyzer
+    intensity = output.get("intensity")
+    pre_focus: list[str] = []
+    try:
+        if intensity is not None and float(intensity) >= 0.7:
+            pre_focus = ["emotion_analyzer"]
+    except (TypeError, ValueError):
+        logger.debug("[emotion_preprocess] intensity not numeric: %r", intensity)
+
     logger.info(
         "[emotion_preprocess] done – emotion=%s intensity=%s",
         output.get("emotion"),
@@ -76,8 +85,17 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
     _trace.debug("[%s] NODE_EXIT  emotion_preprocess emotion=%s intensity=%s",
                  _tid, output.get("emotion"), output.get("intensity"))
 
-    return {
+    updates: dict[str, Any] = {
         "context": ctx,
         # Append to emotion_history so decision engine can read it
         "emotion_history": [output],
     }
+    if pre_focus:
+        # 与 safety 写入的 pre_focus 合并（list 默认覆盖；safety 早于此节点，
+        # 但 emotion 只在强度高时追加，不会覆盖 safety）
+        existing = list(state.get("pre_focus") or [])
+        for a in pre_focus:
+            if a not in existing:
+                existing.append(a)
+        updates["pre_focus"] = existing
+    return updates

@@ -59,8 +59,8 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
         className={cn(
           'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
           isUser
-            ? 'bg-primary-600 text-white'
-            : 'bg-primary-500/10 text-primary-400',
+            ? 'bg-accent text-white'
+            : 'bg-accent-soft text-accent',
         )}
       >
         {isUser ? <UserIcon size={16} /> : <Bot size={16} />}
@@ -75,16 +75,16 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
       >
         <div
           className={cn(
-            'prose prose-sm prose-invert max-w-none rounded-2xl',
+            'prose prose-sm prose-invert max-w-none rounded-xl',
             isUser
-              ? 'bg-primary-600 text-white px-5 py-3.5 prose-p:text-white/95 prose-code:text-primary-100'
-              : 'border border-white/[0.06] bg-[#18181b] text-gray-200 px-5 py-4',
+              ? 'bg-accent/85 text-white px-5 py-3.5 prose-p:text-white/95 prose-code:text-accent/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+              : 'border border-border-subtle bg-bg-elevated text-text-primary px-5 py-4',
           )}
         >
           {!isUser && hasThinking && (
             <div className="mb-3">
               <ThinkingView steps={steps} />
-              <div className="my-2 border-t border-white/[0.06]" />
+              <div className="my-2 border-t border-border-subtle" />
             </div>
           )}
 
@@ -97,11 +97,11 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                 if (match) {
                   return (
                     <div className="relative my-2 overflow-hidden rounded-lg">
-                      <div className="flex items-center justify-between bg-black/40 px-3 py-1.5 text-xs text-gray-500">
+                      <div className="flex items-center justify-between bg-bg-base/60 px-3 py-1.5 text-12 text-text-tertiary">
                         <span>{match[1]}</span>
                         <button
                           onClick={() => navigator.clipboard.writeText(codeStr)}
-                          className="hover:text-white"
+                          className="hover:text-text-primary"
                         >
                           <Copy size={12} />
                         </button>
@@ -110,7 +110,7 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                         style={oneDark}
                         language={match[1]}
                         PreTag="div"
-                        customStyle={{ margin: 0, borderRadius: 0, background: '#0d0d11' }}
+                        customStyle={{ margin: 0, borderRadius: 0, background: 'var(--color-bg-elevated)' }}
                       >
                         {codeStr}
                       </SyntaxHighlighter>
@@ -152,14 +152,14 @@ export function MessageBubble({ message, isLast, onRegenerate, thinkingSteps }: 
                 icon={<RefreshCw size={14} />}
               />
             )}
-            <span className="ml-2 text-xs text-gray-500">
+            <span className="ml-2 font-mono text-12 text-text-tertiary">
               {formatTime(message.created_at)}
             </span>
           </div>
         )}
 
         {isUser && (
-          <p className="mt-1 text-right text-xs text-gray-500">
+          <p className="mt-1 text-right font-mono text-12 text-text-tertiary">
             {formatTime(message.created_at)}
           </p>
         )}
@@ -183,8 +183,8 @@ function ActionButton({
       className={cn(
         'rounded-lg p-1 transition-all duration-200',
         active
-          ? 'text-primary-400'
-          : 'text-gray-500 hover:text-primary-400 hover:bg-white/[0.04]',
+          ? 'text-accent'
+          : 'text-text-tertiary hover:text-accent hover:bg-bg-elevated/50',
       )}
     >
       {icon}

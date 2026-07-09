@@ -50,6 +50,9 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   last_message?: string | null;
+  // 新增(后端 task 7 字段,旧会话可能为 null)
+  knowledge_points?: KnowledgeNode[] | null;
+  highlight_agent?: string | null;
 }
 
 export interface ConversationCreate {
@@ -96,6 +99,70 @@ export interface StreamChunk {
   label?: string;
   step?: string;
   thinking_steps?: ThinkingStep[] | null;
+  // 新增(后端契约升级后会出现;旧后端不返回)
+  done?: StreamDonePayload;
+}
+
+/* ── Turn-level data (新视觉组件用) ──────────────────────────── */
+
+// 知识节点(用于 Path Bar / 认知地图 / 左栏缩略图)
+export interface KnowledgeNode {
+  id: string;
+  label: string;
+  mastery?: number;       // 0..1,可选
+  isHighlight?: boolean;  // 本轮重点
+  isActive?: boolean;     // 正在被处理
+  status?: 'mastered' | 'developing' | 'weak' | 'unknown';
+}
+
+// Agent 时间线项(用于 Trace Timeline / Agent Interaction Log)
+export interface AgentTimelineItem {
+  agentName: string;       // 内部名,如 'cognitive_diagnosis'
+  agentLabel?: string;     // 中文显示名
+  startedAt: number;       // 时间戳 ms
+  durationMs?: number;     // 完成后填
+  status: 'pending' | 'running' | 'completed' | 'error';
+  isFocus?: boolean;       // 本轮重点
+  output?: any;            // agent 输出(精简版)
+}
+
+// KT 诊断摘要(本轮)
+export interface KtSummary {
+  knowledgeStates?: Array<{
+    skillId: string;
+    skillName?: string;
+    mastery: number;
+    status?: string;
+  }>;
+  weakPoints?: string[];
+  diagnosisSummary?: string;
+  diagnosisSource?: string;
+  modelInfo?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+}
+
+// 轮次级聚合数据(一个对话轮 = 用户发一条消息 + AI 完整回复)
+export interface TurnData {
+  turnId: string;
+  touchedNodes: KnowledgeNode[];           // 本轮触及的知识节点
+  focusAgents: string[];                   // 本轮重点 agent 内部名列表
+  agentTimeline: AgentTimelineItem[];      // agent 调用时间线
+  trajectory?: string[];                   // 知识点轨迹(kp_id 顺序)
+  ktSummary?: KtSummary;                   // KT 诊断摘要
+  startedAt: number;
+  endedAt?: number;
+}
+
+// SSE done 事件 payload 类型(扩展兼容)
+export interface StreamDonePayload {
+  workflow?: string;
+  stage?: string;
+  // 新增字段(后端契约升级后会出现;旧后端不返回)
+  turnId?: string;
+  focusAgents?: string[];
+  touchedNodes?: KnowledgeNode[];
+  trajectory?: string[];
+  ktSummary?: KtSummary;
 }
 
 /* ── Pagination ───────────────────────────────────────────────── */

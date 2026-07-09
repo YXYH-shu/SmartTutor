@@ -42,6 +42,7 @@ class Message(Base):
     metadata_: Mapped[dict | None] = mapped_column(
         "metadata", sa.JSON, nullable=True
     )
+    thinking_steps: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

@@ -71,7 +71,14 @@ class ResourceRecommenderAgent(BaseAgent):
             self._trace("[%s] PLAN need_tool=%s", trace_id, plan.get("need_tool"))
 
             if not plan.get("need_tool", False):
-                output, summary_usage = await self._summary(plan, tool_results, enriched, reflection_result)
+                output, summary_usage = await self._summary(
+                    plan,
+                    tool_results,
+                    enriched,
+                    reflection_result,
+                    plan_history=plan_history,
+                    reflection_history=reflection_history,
+                )
                 self._merge_usage(usage, summary_usage)
                 break
 
@@ -91,14 +98,28 @@ class ResourceRecommenderAgent(BaseAgent):
             )
 
             if reflection_result.get("passed"):
-                output, summary_usage = await self._summary(plan, tool_results, enriched, reflection_result)
+                output, summary_usage = await self._summary(
+                    plan,
+                    tool_results,
+                    enriched,
+                    reflection_result,
+                    plan_history=plan_history,
+                    reflection_history=reflection_history,
+                )
                 self._merge_usage(usage, summary_usage)
                 break
 
             if len(reflection_history) >= max_reflections:
                 reflection_result = self._force_pass_reflection(reflection_result)
                 reflection_history[-1] = reflection_result
-                output, summary_usage = await self._summary(plan, tool_results, enriched, reflection_result)
+                output, summary_usage = await self._summary(
+                    plan,
+                    tool_results,
+                    enriched,
+                    reflection_result,
+                    plan_history=plan_history,
+                    reflection_history=reflection_history,
+                )
                 self._merge_usage(usage, summary_usage)
                 break
 
@@ -126,6 +147,7 @@ class ResourceRecommenderAgent(BaseAgent):
             },
             output_payload=output,
             execution_time_ms=elapsed_ms,
+            turn_id=context.get("turn_id"),
         )
         await self.post_process(output, context)
 
@@ -171,6 +193,9 @@ class ResourceRecommenderAgent(BaseAgent):
         tool_results: dict[str, Any],
         input_data: dict[str, Any],
         reflection_result: dict[str, Any],
+        *,
+        plan_history: list[dict[str, Any]] | None = None,
+        reflection_history: list[dict[str, Any]] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         prompt_data = dict(input_data)
         prompt_data.update(
@@ -199,6 +224,10 @@ class ResourceRecommenderAgent(BaseAgent):
         if not payload.get("unmatched_candidate_items"):
             candidate_store = tool_results.get("candidate_store", {})
             payload["unmatched_candidate_items"] = candidate_store.get("unmatched_items", [])
+        # Carry plan/reflection trace so the front-end AgentDetailDrawer can
+        # surface the plan → tool → reflection loop without parsing execution logs.
+        payload["plan_history"] = list(plan_history or [])
+        payload["reflection_history"] = list(reflection_history or [])
         return self._ensure_output_shape(payload), usage
 
     async def _persist_recommendation(
@@ -1544,6 +1573,12 @@ class ResourceRecommenderAgent(BaseAgent):
             text_for_next,
             unmatched_candidate_items,
         )
+        plan_history = [
+            item for item in output.get("plan_history", []) if isinstance(item, dict)
+        ]
+        reflection_history = [
+            item for item in output.get("reflection_history", []) if isinstance(item, dict)
+        ]
         return {
             "recommendation_text": text_for_next,
             # Downstream adapters:
@@ -1563,6 +1598,8 @@ class ResourceRecommenderAgent(BaseAgent):
             "tool_trace": tool_trace,
             "candidate_store": candidate_store,
             "unmatched_candidate_items": unmatched_candidate_items,
+            "plan_history": plan_history,
+            "reflection_history": reflection_history,
         }
 
     def _normalize_candidate_store_result(self, value: Any) -> dict[str, Any]:

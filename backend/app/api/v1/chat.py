@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DBSession, CurrentUser, get_conversation
 from app.api.schemas import (
+    AgentTurnLogResponse,
     ChatResponse,
     HistoryQueryParams,
     MessageFeedbackRequest,
@@ -22,6 +23,8 @@ from app.api.schemas import (
     RegenerateRequest,
     SendMessageRequest,
 )
+from app.models.agent_execution_log import AgentExecutionLog
+from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.message_feedback import MessageFeedback
 from app.services import chat_service
@@ -42,6 +45,7 @@ async def send_message(body: SendMessageRequest, user: CurrentUser, db: DBSessio
         message=result["message"],
         workflow=result.get("workflow"),
         stage=result.get("stage"),
+        turn_id=result.get("turn_id"),
     )
 
 
@@ -195,3 +199,41 @@ async def get_history(
         page_size=limit,
         has_next=len(messages) == limit,
     )
+
+
+@router.get("/turns/{turn_id}/agents", response_model=list[AgentTurnLogResponse])
+async def get_turn_agent_logs(
+    turn_id: str,
+    user: CurrentUser,
+    db: DBSession,
+):
+    """List all agent invocations for a single turn.
+
+    Validates ownership by JOINing AgentExecutionLog → Conversation and
+    ensuring Conversation.user_id matches the current user.
+    """
+    rows = (
+        await db.execute(
+            select(AgentExecutionLog)
+            .join(
+                Conversation,
+                Conversation.id == AgentExecutionLog.conversation_id,
+            )
+            .where(
+                AgentExecutionLog.turn_id == turn_id,
+                Conversation.user_id == user.id,
+            )
+            .order_by(AgentExecutionLog.created_at.asc())
+        )
+    ).scalars().all()
+
+    return [
+        AgentTurnLogResponse(
+            agent_name=row.agent_name,
+            started_at=row.created_at,
+            duration_ms=row.execution_time_ms,
+            is_focus=False,
+            output=row.output_payload,
+        )
+        for row in rows
+    ]

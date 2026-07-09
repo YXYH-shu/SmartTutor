@@ -156,6 +156,7 @@ class BaseAgent(abc.ABC):
             input_payload=enriched,
             output_payload=validated,
             execution_time_ms=elapsed_ms,
+            turn_id=context.get("turn_id"),
         )
 
         # 6. Post-process (subclasses override to e.g. update UserProfile)
@@ -217,18 +218,28 @@ class BaseAgent(abc.ABC):
         input_payload: dict,
         output_payload: dict,
         execution_time_ms: int,
+        turn_id: str | None = None,
     ) -> None:
         if not conversation_id:
             logger.info("No conversation_id – skipping execution log for %s", self.name)
             return
-        async with AsyncSessionLocal() as session:
-            log = AgentExecutionLog(
-                id=str(uuid.uuid4()),
-                conversation_id=conversation_id,
-                agent_name=self.name,
-                input_payload=input_payload,
-                output_payload=output_payload,
-                execution_time_ms=execution_time_ms,
+        # 日志持久化是辅助功能,失败不能阻断 graph 主流程(否则会让 SSE done
+        # 事件永远不可达,用户体验直接崩)。捕获 + 警告 + 继续。
+        try:
+            async with AsyncSessionLocal() as session:
+                log = AgentExecutionLog(
+                    id=str(uuid.uuid4()),
+                    conversation_id=conversation_id,
+                    agent_name=self.name,
+                    input_payload=input_payload,
+                    output_payload=output_payload,
+                    execution_time_ms=execution_time_ms,
+                    turn_id=turn_id,
+                )
+                session.add(log)
+                await session.commit()
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist AgentExecutionLog for %s (turn=%s): %s: %s",
+                self.name, turn_id, type(exc).__name__, exc,
             )
-            session.add(log)
-            await session.commit()

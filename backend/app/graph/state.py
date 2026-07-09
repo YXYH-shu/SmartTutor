@@ -53,3 +53,8 @@ class TutorState(TypedDict):
     safety_action: Optional[str]           # SAFE/TRANSFORM/SOFT_BLOCK/HARD_BLOCK/REFERRAL
     safety_context: Optional[dict]         # 安全管线中间结果
     safety_blocked_response: Optional[str] # 拦截时的预设回复
+
+    # ── 本轮重点 agent 评分（decide 之前由 pre-processing 节点写入） ──
+    # 短路场景下 decide 不执行，pre_focus 必须被 response_assembler 转发
+    pre_focus: list[str]                   # 临时评分结果，decide 后清空
+    focus_agents: list[str]                # 本轮最终重点 agent（最多 2 个）

@@ -18,6 +18,9 @@ from app.services.agents import list_agents
 
 logger = logging.getLogger(__name__)
 
+# 聚合节点,不参与 focus 评分(knowledge_responder 是 stage 内内容生成节点,非独立诊断 agent)
+NON_FOCUS_AGENTS = {"knowledge_responder"}
+
 _decision_engine: DecisionEngine | None = None
 
 
@@ -47,9 +50,28 @@ async def decision_node(state: TutorState) -> dict[str, Any]:
     _FIXED_AGENTS = {"safety_monitor", "emotion_analyzer"}
     agent_seq = [a for a in decision.get("agent_sequence", []) if a not in _FIXED_AGENTS]
 
+    # 本轮重点 agent：合并 pre_focus（pre-processing 评分）和 LLM 返回的 focus_agents
+    # 最多保留 2 个，去重，保持顺序（pre-processing 优先）。
+    pre_focus = list(state.get("pre_focus") or [])
+    llm_focus_raw = decision.get("focus_agents") or []
+    if not isinstance(llm_focus_raw, list):
+        llm_focus_raw = []
+    merged_focus: list[str] = []
+    for a in [*pre_focus, *llm_focus_raw]:
+        if isinstance(a, str) and a and a not in merged_focus:
+            merged_focus.append(a)
+        if len(merged_focus) >= 2:
+            break
+
+    # 过滤聚合节点(knowledge_responder 不应该被选为本轮重点)
+    merged_focus = [a for a in merged_focus if a not in NON_FOCUS_AGENTS]
+
     updates: dict[str, Any] = {
         "decision": decision["decision"],
         "next_agents": agent_seq,
+        "focus_agents": merged_focus,
+        # 清空 pre_focus，避免下一轮被旧值污染
+        "pre_focus": [],
     }
 
     # Handle workflow/stage transitions

@@ -12,7 +12,7 @@ export default function KtDiagnosisPage() {
   const iframeUrl = withEmbedMode(chatAgentUrl);
 
   return (
-    <div className="h-full w-full overflow-hidden bg-[#0a0a0f]">
+    <div className="h-full w-full overflow-hidden bg-bg-base">
       <iframe
         src={iframeUrl}
         title="学情分析"

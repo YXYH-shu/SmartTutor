@@ -71,6 +71,7 @@ async def send_message(
         "message": _msg_to_dict(assistant_msg) if assistant_msg else {"content": result["response"]},
         "workflow": result.get("workflow"),
         "stage": result.get("stage"),
+        "turn_id": result.get("turn_id"),
     }
 
 
@@ -99,6 +100,7 @@ async def stream_message(
     # Run graph with step progress streaming
     engine = _get_engine()
     step_queue: asyncio.Queue = asyncio.Queue()
+    thinking_steps_buffer: list[dict] = []
 
     async def _run_engine() -> dict[str, Any]:
         try:
@@ -107,6 +109,7 @@ async def stream_message(
                 conversation_id=conversation_id,
                 user_message=content,
                 step_queue=step_queue,
+                thinking_steps=thinking_steps_buffer,
             )
             await step_queue.put({"type": "result", "data": result})
         except Exception as exc:
@@ -121,15 +124,33 @@ async def stream_message(
         item = await step_queue.get()
         if item["type"] == "step":
             step_data = json.dumps(
-                {"type": "step", "label": item["label"]}, ensure_ascii=False
+                {"type": "step", "label": item["label"], "step": item.get("step", "")}, ensure_ascii=False
             )
             yield f"data: {step_data}\n\n"
+            # Accumulate into buffer for persistence
+            thinking_steps_buffer.append({
+                "step": item.get("step", ""),
+                "label": item.get("label", ""),
+                "content": "",
+                "status": "running",
+            })
         elif item["type"] == "thinking":
             thinking_data = json.dumps(
                 {"type": "thinking", "content": item.get("content", ""), "step": item.get("step", ""), "label": item.get("label", "")},
                 ensure_ascii=False,
             )
             yield f"data: {thinking_data}\n\n"
+            # Update the matching running step entry with content & completed status
+            for entry in reversed(thinking_steps_buffer):
+                if (
+                    entry.get("status") == "running"
+                    and entry.get("step", "") == item.get("step", "")
+                ):
+                    entry["content"] = item.get("content", "")
+                    entry["status"] = "completed"
+                    if item.get("label"):
+                        entry["label"] = item["label"]
+                    break
         elif item["type"] == "result":
             result = item["data"]
             break
@@ -150,11 +171,28 @@ async def stream_message(
         await asyncio.sleep(0.02)
 
     # Send metadata
+    kt_summary = result.get("kt_summary") or {}
+    kt_summary_clean = {
+        "knowledgeStates": kt_summary.get("knowledgeStates", []) if isinstance(kt_summary, dict) else [],
+        "weakPoints": kt_summary.get("weakPoints", []) if isinstance(kt_summary, dict) else [],
+        "diagnosisSource": kt_summary.get("diagnosisSource", "llm_simulation") if isinstance(kt_summary, dict) else "llm_simulation",
+        "modelInfo": kt_summary.get("modelInfo", {}) if isinstance(kt_summary, dict) else {},
+        "metrics": kt_summary.get("metrics", {}) if isinstance(kt_summary, dict) else {},
+    }
+    if isinstance(kt_summary, dict) and kt_summary.get("diagnosisSummary"):
+        kt_summary_clean["diagnosisSummary"] = kt_summary["diagnosisSummary"]
     meta = json.dumps(
         {
             "type": "done",
             "workflow": result.get("workflow"),
             "stage": result.get("stage"),
+            "turn_id": result.get("turn_id"),
+            # 轮次级聚合数据（focus / KT），与前端 StreamDonePayload 对齐
+            "turnId": result.get("turn_id"),
+            "focusAgents": result.get("focus_agents") or [],
+            "touchedNodes": result.get("touched_knowledge_nodes") or [],
+            "trajectory": result.get("trajectory") or [],
+            "ktSummary": kt_summary_clean,
         },
         ensure_ascii=False,
     )
@@ -209,6 +247,7 @@ def _msg_to_dict(m: Message) -> dict:
         "agent_type": m.agent_type,
         "emotion_state": m.emotion_state,
         "metadata": m.metadata_,
+        "thinking_steps": m.thinking_steps,
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
 

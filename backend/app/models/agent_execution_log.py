@@ -30,6 +30,9 @@ class AgentExecutionLog(Base):
     input_payload: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     output_payload: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     execution_time_ms: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    turn_id: Mapped[str | None] = mapped_column(
+        sa.String(36), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

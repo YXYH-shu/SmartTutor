@@ -89,6 +89,8 @@ class ConversationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_message: Optional[str] = None  # preview
+    knowledge_points: Optional[list["KnowledgeNodeSummary"]] = None
+    highlight_agent: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -111,6 +113,7 @@ class MessageResponse(BaseModel):
     agent_type: Optional[str]
     emotion_state: Optional[dict[str, Any]]
     metadata: Optional[dict[str, Any]]
+    thinking_steps: Optional[list[dict[str, Any]]] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -130,6 +133,7 @@ class ChatResponse(BaseModel):
     workflow: Optional[str] = None
     stage: Optional[str] = None
     emotion: Optional[dict[str, Any]] = None
+    turn_id: Optional[str] = None
 
 
 class HistoryQueryParams(BaseModel):
@@ -164,3 +168,43 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     has_next: bool
+
+
+# ── Knowledge graph (user-facing) ─────────────────────────────────────
+
+
+class KnowledgeNodeSummary(BaseModel):
+    """Lightweight knowledge node used in conversation list & detail views."""
+
+    id: str
+    label: str
+    mastery: Optional[float] = None
+    status: Optional[str] = None
+
+
+class KnowledgeGraphNode(BaseModel):
+    id: str
+    label: str
+    mastery: Optional[float] = None
+    status: Optional[str] = None
+
+
+class KnowledgeGraphEdge(BaseModel):
+    source: str
+    target: str
+
+
+class KnowledgeGraphResponse(BaseModel):
+    nodes: list[KnowledgeGraphNode]
+    edges: list[KnowledgeGraphEdge]
+
+
+# ── Agent execution per turn ──────────────────────────────────────────
+
+
+class AgentTurnLogResponse(BaseModel):
+    agent_name: str
+    started_at: datetime
+    duration_ms: int
+    is_focus: bool = False
+    output: Optional[dict[str, Any]] = None

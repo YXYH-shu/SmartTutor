@@ -8,11 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DBSession, CurrentUser
 from app.api.schemas import (
+    KnowledgeGraphEdge,
+    KnowledgeGraphNode,
+    KnowledgeGraphResponse,
     ProfileResponse,
     ProfileUpdateRequest,
     UserStatsResponse,
 )
 from app.models.conversation import Conversation
+from app.models.knowledge_knowledge import KnowledgeKnowledge
+from app.models.knowledge_point import KnowledgePoint
 from app.models.message import Message
 from app.models.user_profile import UserProfile
 
@@ -102,3 +107,104 @@ async def get_stats(user: CurrentUser, db: DBSession):
         knowledge_points_count=knowledge_points,
         streak_days=min(streak, 30),
     )
+
+
+@router.get("/knowledge-graph", response_model=KnowledgeGraphResponse)
+async def get_user_knowledge_graph(user: CurrentUser, db: DBSession):
+    """Return the knowledge graph relevant to this user.
+
+    Strategy: read the user's flat mastery dict (UserProfile.knowledge_graph
+    ``{skill_id_or_kp_id: 0..1}``) and only return nodes whose id appears in
+    that dict. Edges are limited to those connecting the returned nodes. This
+    keeps the response small even when the full knowledge_points table is
+    large.
+    """
+    profile = (
+        await db.execute(
+            select(UserProfile).where(UserProfile.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    mastery: dict[str, float] = (
+        profile.knowledge_graph if profile and profile.knowledge_graph else {}
+    )
+
+    node_ids = set(mastery.keys())
+
+    nodes: list[KnowledgeGraphNode] = []
+    edges: list[KnowledgeGraphEdge] = []
+
+    if node_ids:
+        # Load matching knowledge_points (cap at 200 to bound payload).
+        kp_rows = (
+            await db.execute(
+                select(KnowledgePoint.id, KnowledgePoint.name).where(
+                    KnowledgePoint.id.in_(node_ids)
+                )
+            )
+        ).all()
+        known_ids = {row.id for row in kp_rows}
+        for row in kp_rows:
+            score = mastery.get(row.id)
+            nodes.append(
+                KnowledgeGraphNode(
+                    id=row.id,
+                    label=row.name or row.id,
+                    mastery=float(score) if score is not None else None,
+                    status=_status_for(score),
+                )
+            )
+
+        # Edges between nodes that are both in our set.
+        edge_rows = (
+            await db.execute(
+                select(
+                    KnowledgeKnowledge.source_kp_id,
+                    KnowledgeKnowledge.target_kp_id,
+                ).where(
+                    KnowledgeKnowledge.source_kp_id.in_(node_ids),
+                    KnowledgeKnowledge.target_kp_id.in_(node_ids),
+                )
+            )
+        ).all()
+        for row in edge_rows:
+            edges.append(KnowledgeGraphEdge(source=row[0], target=row[1]))
+
+        # Pull in a few ancestors/parents so the graph stays connected.
+        # Limit to nodes whose parent is already shown.
+        parent_rows = (
+            await db.execute(
+                select(KnowledgePoint.id, KnowledgePoint.name, KnowledgePoint.parent_knowledge)
+                .where(KnowledgePoint.id.in_(node_ids))
+            )
+        ).all()
+        missing_parent_ids = {
+            r.parent_knowledge
+            for r in parent_rows
+            if r.parent_knowledge and r.parent_knowledge not in known_ids
+        }
+        if missing_parent_ids:
+            parents = (
+                await db.execute(
+                    select(KnowledgePoint.id, KnowledgePoint.name).where(
+                        KnowledgePoint.id.in_(missing_parent_ids)
+                    )
+                )
+            ).all()
+            for p in parents:
+                nodes.append(
+                    KnowledgeGraphNode(id=p.id, label=p.name or p.id, mastery=None, status=None)
+                )
+                edges.append(KnowledgeGraphEdge(source=p.id, target=p.id))
+
+    return KnowledgeGraphResponse(nodes=nodes, edges=edges)
+
+
+def _status_for(score: float | None) -> str | None:
+    """Map mastery 0..1 to a coarse learning status label."""
+    if score is None:
+        return None
+    if score >= 0.8:
+        return "mastered"
+    if score >= 0.5:
+        return "learning"
+    return "weak"

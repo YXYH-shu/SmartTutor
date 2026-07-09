@@ -35,8 +35,8 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
   };
 
   return (
-    <div className="border-t border-white/[0.06] bg-[#0a0a0f]/80 backdrop-blur-xl px-4 py-3">
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl bg-[#18181b] border border-white/[0.06] px-3 py-2 shadow-elevated focus-within:border-primary-500/30 focus-within:shadow-[0_0_20px_rgba(59,130,246,0.08)] transition-all duration-300">
+    <div className="border-t border-border-subtle bg-bg-base/80 backdrop-blur-xl px-4 py-3">
+      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl bg-bg-elevated border border-border-subtle px-3 py-2 shadow-2 focus-within:border-accent/30 focus-within:shadow-[0_0_20px_var(--color-accent-glow)] transition-all duration-300">
         <textarea
           ref={textareaRef}
           value={value}
@@ -46,8 +46,8 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
           placeholder={placeholder || '输入你的问题... (Enter 发送, Shift+Enter 换行)'}
           rows={1}
           className={cn(
-            'flex-1 resize-none bg-transparent px-2 py-2 text-sm text-gray-200',
-            'placeholder:text-gray-500',
+            'flex-1 resize-none bg-transparent px-2 py-2 text-14 text-text-primary',
+            'placeholder:text-text-tertiary',
             'focus:outline-none',
             'scrollbar-thin',
             disabled && 'cursor-not-allowed opacity-50',
@@ -60,8 +60,8 @@ export function ChatInput({ onSend, disabled, placeholder }: Props) {
           className={cn(
             'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
             value.trim() && !disabled
-              ? 'bg-primary-600 text-white hover:bg-primary-500 active:scale-95 shadow-sm'
-              : 'bg-white/[0.04] text-gray-500',
+              ? 'bg-accent text-white hover:bg-accent/90 active:scale-95 shadow-sm'
+              : 'bg-bg-elevated/50 text-text-tertiary',
           )}
         >
           {disabled ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

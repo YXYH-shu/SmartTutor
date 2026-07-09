@@ -47,6 +47,8 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
     # Attach useful state fields
     input_data.setdefault("user_id", state.get("user_id", ""))
     input_data.setdefault("conversation_id", state.get("conversation_id", ""))
+    # KT 模型用 student_id 索引数据集,项目惯例用 user_id 兜底当 student_id
+    input_data.setdefault("student_id", state.get("user_id", ""))
 
     # Add recent messages as serialisable dicts
     messages = state.get("messages", [])
@@ -116,6 +118,8 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
         context={
             "conversation_id": state.get("conversation_id", ""),
             "user_id": state.get("user_id", ""),
+            "student_id": state.get("user_id", ""),
+            "turn_id": (state.get("context") or {}).get("turn_id"),
         },
     )
 

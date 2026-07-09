@@ -1,73 +1,48 @@
 import { X, Cpu } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
-import { useChatStore } from '@/stores/chatStore';
-import { AGENT_CONFIGS, AGENT_DISPLAY_ORDER } from '@/data/agentConfigs';
-import { AgentOverview } from './AgentOverview';
-import { AgentLLMConfig } from './AgentLLMConfig';
-import { AgentDesignShowcase } from './AgentDesignShowcase';
+import { AgentStudio } from './AgentStudio';
+import { AgentDetailDrawer } from './AgentDetailDrawer';
 
+/**
+ * AgentInfoPanel
+ *
+ * 外层折叠容器 + Header + 三段式主体(AgentStudio)。
+ * 删除原 agent 下拉(失效:AgentStudio 不读 uiStore.selectedAgent)。
+ * 点击任何 agent 卡片写入 chatStore.selectedDetailAgent,
+ * 触发 AgentDetailDrawer 在右栏内浮层覆盖。
+ *
+ * 外层 div 加 relative,让抽屉 absolute inset-0 相对它定位。
+ */
 export function AgentInfoPanel() {
-  const selectedAgent = useUIStore((s) => s.selectedAgent);
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
-  const setSelectedAgent = useUIStore((s) => s.setSelectedAgent);
-  // 直接用后端 SSE 推的 step 字段(agent 内部名)匹配,不再需要 NODE_TO_AGENT 映射
-  const thinkingSteps = useChatStore((s) => s.thinkingSteps);
-
-  const agent = AGENT_CONFIGS[selectedAgent];
-  if (!agent) return null;
-
-  // isActive 判断:后端推的 step.step 已经是 agent 内部名(如 "cognitive_diagnosis"),
-  // 直接对比 selectedAgent。空 step 字段(仅有 label)时退化为 label.includes
-  const isActive = thinkingSteps.some(
-    (step) =>
-      step.status === 'running' &&
-      (step.step === selectedAgent ||
-        (!step.step && step.label?.includes(agent.displayName))),
-  );
-
   const close = () => setRightPanelOpen(false);
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-white/[0.06] bg-[#0a0a0f] animate-slide-in-right">
+    <div className="relative flex h-full w-80 flex-col border-l border-border-subtle bg-bg-base animate-slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <Cpu size={16} className="text-primary-400" />
-          <h2 className="text-sm font-semibold text-gray-200">智能体</h2>
+          <Cpu size={16} className="text-text-secondary" />
+          <h2 className="text-14 font-display font-semibold text-text-primary">
+            智能体工作室
+          </h2>
         </div>
         <button
+          type="button"
           onClick={close}
-          className="rounded-lg p-1 text-gray-500 hover:bg-white/[0.04] hover:text-gray-300 transition-all duration-200"
+          className="rounded-md p-1 text-text-tertiary transition-all duration-200 hover:bg-bg-elevated hover:text-text-primary"
         >
           <X size={16} />
         </button>
       </div>
 
-      {/* Agent Selector */}
-      <div className="border-b border-white/[0.06] px-4 py-2">
-        <select
-          value={selectedAgent}
-          onChange={(e) => setSelectedAgent(e.target.value)}
-          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-gray-300 focus:border-primary-500/40 focus:outline-none focus:ring-1 focus:ring-primary-500/20 transition-all duration-200"
-        >
-          {AGENT_DISPLAY_ORDER.map((key) => {
-            const config = AGENT_CONFIGS[key];
-            if (!config) return null;
-            return (
-              <option key={key} value={key}>
-                {config.displayName}
-              </option>
-            );
-          })}
-        </select>
+      {/* 三段式主体 */}
+      <div className="flex-1 overflow-hidden">
+        <AgentStudio />
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4 scrollbar-thin">
-        <AgentOverview agent={agent} isActive={isActive} />
-        <AgentLLMConfig config={agent.llmConfig} />
-        <AgentDesignShowcase agent={agent} />
-      </div>
+      {/* 详情抽屉(absolute 覆盖整个右栏,selectedDetailAgent 为 null 时不渲染) */}
+      <AgentDetailDrawer />
     </div>
   );
 }

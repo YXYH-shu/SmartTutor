@@ -106,6 +106,16 @@ class ResourceRankingPredictor:
             logger.warning("[resource_ranking] CTR predictor unavailable: %s", exc)
             return []
 
+    def ensure_loaded(self) -> None:
+        """Public loader hook used by app startup to warm the model.
+
+        Safe to call when disabled — the heavy loader still runs but the
+        first real ``predict`` will short-circuit on the empty instance
+        check. This wrapper intentionally raises on real failures so the
+        caller (app lifespan) can decide whether to warn or abort.
+        """
+        self._ensure_model_loaded()
+
     def pack_instances(self, instances: list[dict[str, Any]]) -> dict[str, Any]:
         batch_size = len(instances)
         seq_max_lens = self._seq_max_lens()

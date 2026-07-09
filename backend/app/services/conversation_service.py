@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.agent_execution_log import AgentExecutionLog
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_profile import UserProfile
@@ -52,14 +53,24 @@ async def list_conversations(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
-    """Return paginated conversations with a last-message preview."""
+    """Return paginated conversations with last-message preview + agent hints.
+
+    Aggregation strategy (avoids N+1):
+    1. One query to fetch the page of conversations.
+    2. One query to fetch the latest message per conversation in the page
+       (correlated subquery).
+    3. One query to fetch the latest AgentExecutionLog per conversation in
+       the page – used to derive highlight_agent + knowledge_points.
+
+    Result: 3 SQL round trips, regardless of page_size.
+    """
     # Count
     count_q = select(func.count()).select_from(Conversation).where(
         Conversation.user_id == user_id
     )
     total = (await db.execute(count_q)).scalar() or 0
 
-    # Fetch
+    # Fetch the page
     q = (
         select(Conversation)
         .where(Conversation.user_id == user_id)
@@ -69,17 +80,73 @@ async def list_conversations(
     )
     rows = (await db.execute(q)).scalars().all()
 
-    items = []
-    for conv in rows:
-        # Latest message preview
-        msg_q = (
-            select(Message.content)
-            .where(Message.conversation_id == conv.id)
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        )
-        last_msg = (await db.execute(msg_q)).scalar_one_or_none()
+    if not rows:
+        return [], total
 
+    conv_ids = [c.id for c in rows]
+
+    # ── Latest message per conversation (batch) ──────────────────────
+    # Use a correlated subquery on max(created_at).
+    latest_msg_sub = (
+        select(
+            Message.conversation_id.label("cid"),
+            Message.content.label("content"),
+            Message.created_at.label("created_at"),
+            func.row_number()
+            .over(
+                partition_by=Message.conversation_id,
+                order_by=Message.created_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(Message.conversation_id.in_(conv_ids))
+    ).subquery()
+
+    msg_rows = (
+        await db.execute(
+            select(latest_msg_sub.c.cid, latest_msg_sub.c.content).where(
+                latest_msg_sub.c.rn == 1
+            )
+        )
+    ).all()
+    msg_by_cid = {row.cid: row.content for row in msg_rows}
+
+    # ── Latest AgentExecutionLog per conversation (batch) ────────────
+    log_sub = (
+        select(
+            AgentExecutionLog.conversation_id.label("cid"),
+            AgentExecutionLog.agent_name.label("agent_name"),
+            AgentExecutionLog.output_payload.label("output_payload"),
+            AgentExecutionLog.created_at.label("created_at"),
+            func.row_number()
+            .over(
+                partition_by=AgentExecutionLog.conversation_id,
+                order_by=AgentExecutionLog.created_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(AgentExecutionLog.conversation_id.in_(conv_ids))
+    ).subquery()
+
+    log_rows = (
+        await db.execute(
+            select(
+                log_sub.c.cid,
+                log_sub.c.agent_name,
+                log_sub.c.output_payload,
+            ).where(log_sub.c.rn == 1)
+        )
+    ).all()
+    log_by_cid = {row.cid: row for row in log_rows}
+
+    items: list[dict[str, Any]] = []
+    for conv in rows:
+        last_msg = msg_by_cid.get(conv.id)
+        last_log = log_by_cid.get(conv.id)
+        highlight_agent = last_log.agent_name if last_log else None
+        knowledge_points = (
+            _extract_knowledge_points(last_log.output_payload) if last_log else None
+        )
         items.append(
             {
                 "id": conv.id,
@@ -88,10 +155,115 @@ async def list_conversations(
                 "workflow_type": conv.workflow_type,
                 "created_at": conv.created_at,
                 "updated_at": conv.updated_at,
-                "last_message": (last_msg[:80] + "...") if last_msg and len(last_msg) > 80 else last_msg,
+                "last_message": (
+                    last_msg[:80] + "..." if last_msg and len(last_msg) > 80 else last_msg
+                ),
+                "knowledge_points": knowledge_points,
+                "highlight_agent": highlight_agent,
             }
         )
     return items, total
+
+
+def _extract_knowledge_points(payload: Any, limit: int = 6) -> list[dict[str, Any]]:
+    """Best-effort skill/knowledge node extraction from an agent output payload.
+
+    Looks at common shapes:
+    - {"mastery_rates": {"skill_id": 0.x, ...}}
+    - {"weak_points": [...]}
+    - {"knowledge_graph": {...}}
+    - {"target_knowledge": [...]}
+    Returns up to ``limit`` nodes with mastery when available.
+    """
+    if not isinstance(payload, dict):
+        return []
+
+    nodes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    mastery_map = payload.get("mastery_rates")
+    if isinstance(mastery_map, dict):
+        for sid, score in mastery_map.items():
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            nodes.append(
+                {
+                    "id": str(sid),
+                    "label": str(sid),
+                    "mastery": float(score) if isinstance(score, (int, float)) else None,
+                    "status": (
+                        "mastered"
+                        if isinstance(score, (int, float)) and score >= 0.8
+                        else (
+                            "learning"
+                            if isinstance(score, (int, float)) and score >= 0.5
+                            else "weak"
+                        )
+                    ),
+                }
+            )
+            if len(nodes) >= limit:
+                return nodes
+
+    kg = payload.get("knowledge_graph")
+    if isinstance(kg, dict):
+        for sid, score in kg.items():
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            nodes.append(
+                {
+                    "id": str(sid),
+                    "label": str(sid),
+                    "mastery": float(score) if isinstance(score, (int, float)) else None,
+                    "status": (
+                        "mastered"
+                        if isinstance(score, (int, float)) and score >= 0.8
+                        else (
+                            "learning"
+                            if isinstance(score, (int, float)) and score >= 0.5
+                            else "weak"
+                        )
+                    ),
+                }
+            )
+            if len(nodes) >= limit:
+                return nodes
+
+    weak = payload.get("weak_points")
+    if isinstance(weak, list):
+        for wp in weak:
+            text = wp if isinstance(wp, str) else (
+                wp.get("skill_id") or wp.get("name") or wp.get("label")
+                if isinstance(wp, dict) else None
+            )
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            nodes.append(
+                {"id": text, "label": text, "mastery": None, "status": "weak"}
+            )
+            if len(nodes) >= limit:
+                return nodes
+
+    target = payload.get("target_knowledge")
+    if isinstance(target, list):
+        for tk in target:
+            text = tk if isinstance(tk, str) else (
+                tk.get("skill_id") or tk.get("name")
+                if isinstance(tk, dict) else None
+            )
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            nodes.append(
+                {"id": text, "label": text, "mastery": None, "status": "learning"}
+            )
+            if len(nodes) >= limit:
+                return nodes
+
+    return nodes
 
 
 async def get_conversation_detail(

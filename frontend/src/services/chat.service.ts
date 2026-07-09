@@ -1,7 +1,81 @@
 import api from './api';
-import type { Message, StreamChunk, FeedbackRequest } from '@/types';
+import type { Message, StreamChunk, FeedbackRequest, StreamDonePayload } from '@/types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
+
+// 把后端原始 SSE done 数据规范化为 StreamDonePayload(兼容 snake_case / camelCase)
+function parseDonePayload(raw: any): StreamDonePayload {
+  const p: StreamDonePayload = {};
+  if (!raw || typeof raw !== 'object') return p;
+  // 每个字段独立 ?? 兜底,确保旧后端不返回时不报错
+  p.workflow = raw.workflow ?? raw.workflow_type;
+  p.stage = raw.stage;
+  p.turnId = raw.turnId ?? raw.turn_id;
+  // focusAgents / touchedNodes / ktSummary 也兼容 snake_case
+  const focusAgentsRaw = raw.focusAgents ?? raw.focus_agents;
+  if (Array.isArray(focusAgentsRaw)) {
+    p.focusAgents = focusAgentsRaw.filter((x) => typeof x === 'string');
+  }
+  p.trajectory = Array.isArray(raw.trajectory)
+    ? raw.trajectory.filter((x: unknown) => typeof x === 'string')
+    : undefined;
+  const touchedRaw = raw.touchedNodes ?? raw.touched_nodes;
+  if (Array.isArray(touchedRaw)) {
+    p.touchedNodes = touchedRaw
+      .map((n: any) => {
+        if (!n || typeof n !== 'object') return null;
+        const id = n.id ?? n.kp_id ?? n.skillId;
+        if (!id) return null;
+        return {
+          id: String(id),
+          label: n.label ?? n.name ?? n.skillName ?? String(id),
+          mastery: typeof n.mastery === 'number' ? n.mastery : undefined,
+          isHighlight: typeof n.isHighlight === 'boolean' ? n.isHighlight : (typeof n.is_highlight === 'boolean' ? n.is_highlight : undefined),
+          isActive: typeof n.isActive === 'boolean' ? n.isActive : (typeof n.is_active === 'boolean' ? n.is_active : undefined),
+          status: n.status,
+        };
+      })
+      .filter((n): n is NonNullable<typeof n> => n !== null);
+  }
+  const ktRaw = raw.ktSummary ?? raw.kt_summary;
+  if (ktRaw && typeof ktRaw === 'object') {
+    const summary: StreamDonePayload['ktSummary'] = {};
+    if (Array.isArray(ktRaw.knowledgeStates ?? ktRaw.knowledge_states)) {
+      const ks = (ktRaw.knowledgeStates ?? ktRaw.knowledge_states) as any[];
+      summary.knowledgeStates = ks
+        .map((s) => {
+          if (!s || typeof s !== 'object') return null;
+          const skillId = s.skillId ?? s.skill_id ?? s.id;
+          if (!skillId) return null;
+          return {
+            skillId: String(skillId),
+            skillName: s.skillName ?? s.skill_name ?? s.name ?? String(skillId),
+            mastery: typeof s.mastery === 'number' ? s.mastery : 0,
+            status: typeof s.status === 'string' ? s.status : undefined,
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+    }
+    if (Array.isArray(ktRaw.weakPoints ?? ktRaw.weak_points)) {
+      summary.weakPoints = (ktRaw.weakPoints ?? ktRaw.weak_points).filter(
+        (x: unknown) => typeof x === 'string',
+      );
+    }
+    const diagSummary = ktRaw.diagnosisSummary ?? ktRaw.diagnosis_summary;
+    if (typeof diagSummary === 'string') summary.diagnosisSummary = diagSummary;
+    const diagSource = ktRaw.diagnosisSource ?? ktRaw.diagnosis_source;
+    if (typeof diagSource === 'string') summary.diagnosisSource = diagSource;
+    const modelInfo = ktRaw.modelInfo ?? ktRaw.model_info;
+    if (modelInfo && typeof modelInfo === 'object') {
+      summary.modelInfo = modelInfo as Record<string, unknown>;
+    }
+    if (ktRaw.metrics && typeof ktRaw.metrics === 'object') {
+      summary.metrics = ktRaw.metrics as Record<string, unknown>;
+    }
+    p.ktSummary = summary;
+  }
+  return p;
+}
 
 export const chatService = {
   /**
@@ -27,9 +101,9 @@ export const chatService = {
     accessToken: string,
     callbacks: {
       onChunk: (chunk: string) => void;
-      onStep?: (label: string) => void;
+      onStep?: (label: string, step?: string) => void;
       onThinking?: (content: string, step: string, label: string) => void;
-      onDone?: (meta: { workflow?: string; stage?: string }) => void;
+      onDone?: (payload: StreamDonePayload) => void;
       onError?: (err: string) => void;
     },
     signal?: AbortSignal,
@@ -80,14 +154,16 @@ export const chatService = {
             if (chunk.type === 'content' && chunk.content) {
               callbacks.onChunk(chunk.content);
             } else if (chunk.type === 'step') {
-              callbacks.onStep?.(chunk.label || '');
+              callbacks.onStep?.(chunk.label || '', chunk.step);
             } else if (chunk.type === 'thinking') {
               callbacks.onThinking?.(chunk.content || '', chunk.step || '', chunk.label || '');
             } else if (chunk.type === 'done') {
-              callbacks.onDone?.({
-                workflow: chunk.workflow,
-                stage: chunk.stage,
+              // 解析完整 StreamDonePayload(兼容旧后端仅返回 workflow/stage)
+              const payload = parseDonePayload({
+                ...chunk,
+                ...(chunk.done || {}),
               });
+              callbacks.onDone?.(payload);
             } else if (chunk.type === 'error') {
               callbacks.onError?.(chunk.detail || 'Stream error');
             }
@@ -111,9 +187,9 @@ export const chatService = {
     accessToken: string,
     callbacks: {
       onChunk: (chunk: string) => void;
-      onStep?: (label: string) => void;
+      onStep?: (label: string, step?: string) => void;
       onThinking?: (content: string, step: string, label: string) => void;
-      onDone?: (meta: { workflow?: string; stage?: string }) => void;
+      onDone?: (payload: StreamDonePayload) => void;
       onError?: (err: string) => void;
     },
     signal?: AbortSignal,
@@ -164,14 +240,15 @@ export const chatService = {
             if (chunk.type === 'content' && chunk.content) {
               callbacks.onChunk(chunk.content);
             } else if (chunk.type === 'step') {
-              callbacks.onStep?.(chunk.label || '');
+              callbacks.onStep?.(chunk.label || '', chunk.step);
             } else if (chunk.type === 'thinking') {
               callbacks.onThinking?.(chunk.content || '', chunk.step || '', chunk.label || '');
             } else if (chunk.type === 'done') {
-              callbacks.onDone?.({
-                workflow: chunk.workflow,
-                stage: chunk.stage,
+              const payload = parseDonePayload({
+                ...chunk,
+                ...(chunk.done || {}),
               });
+              callbacks.onDone?.(payload);
             } else if (chunk.type === 'error') {
               callbacks.onError?.(chunk.detail || 'Stream error');
             }

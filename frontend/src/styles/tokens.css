@@ -1,0 +1,141 @@
+/* ──────────────────────────────────────────────────────────────
+   Design Tokens
+   全局设计 token，由 globals.css 顶部 @import 引入。
+   业务组件通过 tailwind.config.js 映射出的工具类使用
+   （如 bg-bg-base / text-text-primary / text-accent）。
+
+   颜色拆成 RGB channel（空格分隔），让 tailwind 的 /opacity modifier 生效。
+   例如 text-accent/40 会编译成 rgb(var(--color-accent-rgb) / 0.4)。
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* 字体 */
+  --font-display: 'Inter Display', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+
+  /* 字号阶梯 */
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-18: 18px;
+  --text-24: 24px;
+  --text-32: 32px;
+
+  /* 字距 */
+  --tracking-body: -0.01em;
+  --tracking-caption: 0.01em;
+  --tracking-display: -0.02em;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+
+  /* 时长阶梯 */
+  --duration-120: 120ms;
+  --duration-200: 200ms;
+  --duration-320: 320ms;
+  --duration-480: 480ms;
+  --duration-800: 800ms;
+  --duration-breath: 2400ms;
+  --duration-ripple: 320ms;
+  --duration-flow: 800ms;
+
+  /* 动效曲线 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 分隔线 */
+  --border-thin: 0.5px;
+}
+
+/* ── Dark theme（默认）──────────────────────────────────────── */
+[data-theme='dark'] {
+  /* 颜色（含 -rgb 空格分隔的 channel 形式，给 tailwind /opacity 用） */
+  --color-bg-base: #0b0e14;
+  --color-bg-base-rgb: 11 14 20;
+  --color-bg-elevated: #151923;
+  --color-bg-elevated-rgb: 21 25 35;
+  --color-bg-overlay: rgba(11, 14, 20, 0.85);
+
+  --color-text-primary: #f5f5f7;
+  --color-text-primary-rgb: 245 245 247;
+  --color-text-secondary: #a0a4ae;
+  --color-text-secondary-rgb: 160 164 174;
+  --color-text-tertiary: #6b6f7a;
+  --color-text-tertiary-rgb: 107 111 122;
+
+  --color-border-subtle: #262a35;
+  --color-border-subtle-rgb: 38 42 53;
+  --color-border-strong: #353945;
+  --color-border-strong-rgb: 53 57 69;
+
+  --color-accent: #d4a24c;
+  --color-accent-rgb: 212 162 76;
+  --color-accent-soft: rgba(212, 162, 76, 0.15);
+  --color-accent-glow: rgba(212, 162, 76, 0.4);
+
+  /* 语义色（保留但弱化，仅状态指示用） */
+  --color-status-success: rgba(52, 211, 153, 0.85);
+  --color-status-success-rgb: 52 211 153;
+  --color-status-warning: rgba(251, 191, 36, 0.85);
+  --color-status-warning-rgb: 251 191 36;
+  --color-status-info: rgba(96, 165, 250, 0.85);
+  --color-status-info-rgb: 96 165 250;
+  --color-status-error: rgba(248, 113, 113, 0.9);
+  --color-status-error-rgb: 248 113 113;
+
+  /* 阴影 token */
+  --elevation-1: none;
+  --elevation-2: 0 1px 2px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --elevation-3: 0 8px 24px -8px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --elevation-4: 0 24px 48px -12px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  --shadow-hero: 0 24px 48px -12px rgba(212, 162, 76, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ── Light theme ───────────────────────────────────────────── */
+[data-theme='light'] {
+  --color-bg-base: #fafaf7;
+  --color-bg-base-rgb: 250 250 247;
+  --color-bg-elevated: #ffffff;
+  --color-bg-elevated-rgb: 255 255 255;
+  --color-bg-overlay: rgba(250, 250, 247, 0.85);
+
+  --color-text-primary: #1a1d24;
+  --color-text-primary-rgb: 26 29 36;
+  --color-text-secondary: #5a5f6b;
+  --color-text-secondary-rgb: 90 95 107;
+  --color-text-tertiary: #8b8f99;
+  --color-text-tertiary-rgb: 139 143 153;
+
+  --color-border-subtle: #e5e3dc;
+  --color-border-subtle-rgb: 229 227 220;
+  --color-border-strong: #c9c7bf;
+  --color-border-strong-rgb: 201 199 191;
+
+  --color-accent: #b8862f;
+  --color-accent-rgb: 184 134 47;
+  --color-accent-soft: rgba(184, 134, 47, 0.12);
+  --color-accent-glow: rgba(184, 134, 47, 0.35);
+
+  --color-status-success: rgba(22, 163, 74, 0.85);
+  --color-status-success-rgb: 22 163 74;
+  --color-status-warning: rgba(217, 119, 6, 0.85);
+  --color-status-warning-rgb: 217 119 6;
+  --color-status-info: rgba(37, 99, 235, 0.85);
+  --color-status-info-rgb: 37 99 235;
+  --color-status-error: rgba(220, 38, 38, 0.9);
+  --color-status-error-rgb: 220 38 38;
+
+  --elevation-1: none;
+  --elevation-2: 0 1px 2px rgba(20, 20, 20, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --elevation-3: 0 8px 24px -8px rgba(20, 20, 20, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --elevation-4: 0 24px 48px -12px rgba(20, 20, 20, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  --shadow-hero: 0 24px 48px -12px rgba(184, 134, 47, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}

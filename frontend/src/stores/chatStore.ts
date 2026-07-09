@@ -1,5 +1,13 @@
 import { create } from 'zustand';
-import type { Conversation, Message, ThinkingStep } from '@/types';
+import type {
+  Conversation,
+  Message,
+  ThinkingStep,
+  TurnData,
+  KnowledgeNode,
+  AgentTimelineItem,
+  StreamDonePayload,
+} from '@/types';
 
 interface ChatState {
   conversations: Conversation[];
@@ -15,8 +23,22 @@ interface ChatState {
   thinkingExpanded: boolean;
   /** 当前正在执行的 agent 内部名(后端 SSE step 字段),对话中实时更新 */
   currentAgent: string | null;
-  /** 累积 agent 输出,按 agent name 分桶;不随对话结束清空,供右侧面板持续展示 */
+  /** 累积 agent 输出,按 agent name 分桶;切换对话时清空 */
   agentTrace: Record<string, { content: string; label: string; updatedAt: string }>;
+
+  // ── 新增:turn 级字段 ──
+  /** 当前轮次聚合数据(用户发一条消息 + AI 完整回复 = 一轮) */
+  currentTurn: TurnData | null;
+  /** 当前对话所有轮次(用于 Trace Timeline 回看) */
+  turnHistory: TurnData[];
+  /** 当前轮重点 agent 内部名列表(从 currentTurn 派生,单独存方便订阅) */
+  currentFocusAgents: string[];
+  /** 当前轮触及的知识节点(同上) */
+  currentTouchedNodes: KnowledgeNode[];
+  /** 当前 active 的知识点(用于 Path Bar 呼吸动画) */
+  activeNodeId?: string;
+  /** 详情抽屉当前指向的 agent(点击卡片打开,null 时抽屉关闭) */
+  selectedDetailAgent: string | null;
 
   setConversations: (convs: Conversation[]) => void;
   addConversation: (conv: Conversation) => void;
@@ -37,6 +59,22 @@ interface ChatState {
   toggleThinkingExpanded: () => void;
   cancelStream: () => void;
   reset: () => void;
+
+  // ── 新增:turn 级 actions ──
+  /** 用户发消息时调用,创建新轮次 */
+  startTurn: (turnId?: string) => void;
+  /** 收到 SSE step 事件时往 timeline 追加 agent */
+  appendTimelineItem: (item: AgentTimelineItem) => void;
+  /** patch timeline 里某个 agent 的字段 */
+  updateTimelineItem: (agentName: string, patch: Partial<AgentTimelineItem>) => void;
+  /** 设置当前 active 的知识点(供 Path Bar 呼吸动画) */
+  setActiveNode: (nodeId?: string) => void;
+  /** 收到 done 事件时合并 payload 到 currentTurn,推入 turnHistory */
+  finalizeTurn: (done: StreamDonePayload) => void;
+  /** 切换对话时清空所有 turn 级字段(并清 agentTrace) */
+  resetTurn: () => void;
+  /** 设置详情抽屉当前 agent(null 关闭抽屉) */
+  setSelectedDetailAgent: (name: string | null) => void;
 }
 
 const initialState = {
@@ -52,6 +90,24 @@ const initialState = {
   thinkingExpanded: true,
   currentAgent: null as string | null,
   agentTrace: {} as Record<string, { content: string; label: string; updatedAt: string }>,
+  // turn 级
+  currentTurn: null as TurnData | null,
+  turnHistory: [] as TurnData[],
+  currentFocusAgents: [] as string[],
+  currentTouchedNodes: [] as KnowledgeNode[],
+  activeNodeId: undefined as string | undefined,
+  selectedDetailAgent: null as string | null,
+};
+
+// turn 级初始切片(供 resetTurn 复用,不包含 conversationId 等)
+const initialTurnSlice = {
+  currentTurn: null as TurnData | null,
+  turnHistory: [] as TurnData[],
+  currentFocusAgents: [] as string[],
+  currentTouchedNodes: [] as KnowledgeNode[],
+  activeNodeId: undefined as string | undefined,
+  agentTrace: {} as Record<string, { content: string; label: string; updatedAt: string }>,
+  selectedDetailAgent: null as string | null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -79,8 +135,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   setCurrentConversation: (id) => {
     get().cancelStream();
-    set({ currentConversationId: id, messages: [] });
+    // 切对话时清空 turn 级字段 + agentTrace(修原 agentTrace 跨对话不清空 bug)
+    set({
+      currentConversationId: id,
+      messages: [],
+      ...initialTurnSlice,
+    });
   },
+
+  resetTurn: () =>
+    set({ ...initialTurnSlice }),
 
   setMessages: (messages) => set({ messages }),
 
@@ -130,9 +194,29 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       // step.step 是后端推的 agent 内部名(如 "cognitive_diagnosis"),
       // 实时更新 currentAgent 让右侧面板自动跟随
       const agentName = step.step && step.step.length > 0 ? step.step : null;
+      // 同步把 agent 写入 timeline(如果还没记录过)
+      let currentTurn = s.currentTurn;
+      if (agentName && currentTurn) {
+        const exists = currentTurn.agentTimeline.some((it) => it.agentName === agentName);
+        if (!exists) {
+          currentTurn = {
+            ...currentTurn,
+            agentTimeline: [
+              ...currentTurn.agentTimeline,
+              {
+                agentName,
+                agentLabel: step.label || undefined,
+                startedAt: Date.now(),
+                status: 'running',
+              },
+            ],
+          };
+        }
+      }
       return {
         thinkingSteps: [...s.thinkingSteps, step],
         currentAgent: agentName ?? s.currentAgent,
+        currentTurn,
       };
     }),
 
@@ -146,7 +230,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
       }
-      // 累积到 agentTrace(按 agent name 分桶),对话结束后不清空
+      // 累积到 agentTrace(按 agent name 分桶),切换对话时才清空
       const agentName = step && step.length > 0 ? step : null;
       const agentTrace = { ...s.agentTrace };
       if (agentName) {
@@ -156,7 +240,29 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updatedAt: new Date().toISOString(),
         };
       }
-      return { thinkingSteps: steps, agentTrace, currentAgent: agentName ?? s.currentAgent };
+      // 同步更新 timeline 里对应 agent -> completed
+      let currentTurn = s.currentTurn;
+      if (agentName && currentTurn) {
+        const idx = currentTurn.agentTimeline.findIndex((it) => it.agentName === agentName);
+        if (idx >= 0) {
+          const existing = currentTurn.agentTimeline[idx];
+          const updatedTimeline = [...currentTurn.agentTimeline];
+          updatedTimeline[idx] = {
+            ...existing,
+            status: 'completed',
+            durationMs: existing.durationMs ?? Date.now() - existing.startedAt,
+            output: content,
+            agentLabel: existing.agentLabel || label || undefined,
+          };
+          currentTurn = { ...currentTurn, agentTimeline: updatedTimeline };
+        }
+      }
+      return {
+        thinkingSteps: steps,
+        agentTrace,
+        currentAgent: agentName ?? s.currentAgent,
+        currentTurn,
+      };
     }),
 
   clearThinking: () =>
@@ -170,8 +276,92 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       abortController.abort();
     }
     // 注意:agentTrace 不清空,保留最近一次诊断结果供面板展示
+    // turn 级字段也保留(用户取消流后仍可在面板看部分时间线)
     set({ isStreaming: false, streamingContent: '', currentStep: null, currentAgent: null, abortController: null, thinkingSteps: [] });
   },
+
+  // ── 新增 turn 级 actions ──
+
+  startTurn: (turnId) => {
+    const id =
+      turnId ||
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const newTurn: TurnData = {
+      turnId: id,
+      touchedNodes: [],
+      focusAgents: [],
+      agentTimeline: [],
+      startedAt: Date.now(),
+    };
+    set({
+      currentTurn: newTurn,
+      currentFocusAgents: [],
+      currentTouchedNodes: [],
+      activeNodeId: undefined,
+    });
+  },
+
+  appendTimelineItem: (item) =>
+    set((s) => {
+      if (!s.currentTurn) return s; // 没有 currentTurn 时静默忽略
+      const exists = s.currentTurn.agentTimeline.some(
+        (it) => it.agentName === item.agentName,
+      );
+      const agentTimeline = exists
+        ? s.currentTurn.agentTimeline
+        : [...s.currentTurn.agentTimeline, item];
+      return {
+        currentTurn: { ...s.currentTurn, agentTimeline },
+        currentAgent: item.agentName,
+      };
+    }),
+
+  updateTimelineItem: (agentName, patch) =>
+    set((s) => {
+      if (!s.currentTurn) return s;
+      const idx = s.currentTurn.agentTimeline.findIndex(
+        (it) => it.agentName === agentName,
+      );
+      if (idx < 0) return s;
+      const agentTimeline = [...s.currentTurn.agentTimeline];
+      agentTimeline[idx] = { ...agentTimeline[idx], ...patch };
+      return { currentTurn: { ...s.currentTurn, agentTimeline } };
+    }),
+
+  setActiveNode: (nodeId) => set({ activeNodeId: nodeId }),
+
+  finalizeTurn: (done) =>
+    set((s) => {
+      if (!s.currentTurn) {
+        // 极端情况:done 早于 startTurn 到达,补建一个
+        return s;
+      }
+      const focusAgents = done.focusAgents ?? s.currentTurn.focusAgents;
+      const touchedNodes = done.touchedNodes ?? s.currentTurn.touchedNodes;
+      const trajectory = done.trajectory ?? s.currentTurn.trajectory;
+      const ktSummary = done.ktSummary ?? s.currentTurn.ktSummary;
+      const turnId = done.turnId ?? s.currentTurn.turnId;
+      const endedAt = Date.now();
+      const finalTurn: TurnData = {
+        ...s.currentTurn,
+        turnId,
+        focusAgents,
+        touchedNodes,
+        trajectory,
+        ktSummary,
+        endedAt,
+      };
+      return {
+        currentTurn: finalTurn,
+        turnHistory: [...s.turnHistory, finalTurn],
+        currentFocusAgents: focusAgents,
+        currentTouchedNodes: touchedNodes,
+      };
+    }),
+
+  setSelectedDetailAgent: (name) => set({ selectedDetailAgent: name }),
 
   reset: () => set(initialState),
 }));

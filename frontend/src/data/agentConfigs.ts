@@ -175,7 +175,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     description: '个性化学习路径规划智能体',
     version: '3.0',
     icon: 'Route',
-    color: 'blue',
+    color: 'gold',
     llmConfig: { model: 'glm-5', temperature: 0.3, maxTokens: 4096, timeout: 120, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
@@ -217,7 +217,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Library',
     color: 'emerald',
-    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: 'Plan 规划', description: 'LLM 生成召回-排序-混排的整体计划(选择哪些 tool)' },
@@ -287,43 +287,6 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     },
     promptSummary:
       '推荐适配的学习伙伴,分析互补原因,营造陪伴感和协作氛围。',
-  },
-
-  knowledge_responder: {
-    name: 'knowledge_responder',
-    displayName: '知识问答',
-    description: '知识问答与内容响应智能体',
-    version: '1.0',
-    icon: 'BookOpen',
-    color: 'indigo',
-    llmConfig: { model: 'glm-5', temperature: 0.7, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
-    thinkingProcess: {
-      stages: [
-        { name: '上下文整合', description: '合并 diagnosis/resource/buddy/plan 等上下文' },
-        { name: '内容生成', description: '根据 stage 角色生成自然语言回复' },
-        { name: '语言组织', description: '调整语气、节奏、术语难度' },
-      ],
-    },
-    designNotes:
-      '核心内容生成 agent,几乎所有 stage 都会出现。temperature=0.7 是全系统最高,保证回复自然多样。' +
-      '其输出通常成为 stage 内最终用户可见回复。',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        diagnosis_result: { type: 'object' },
-        resource_list: { type: 'array' },
-        buddy_info: { type: 'object' },
-        learning_plan: { type: 'object' },
-      },
-    },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        response_text: { type: 'string' },
-      },
-    },
-    promptSummary:
-      '根据 stage 和上下文生成自然语言回复,是 stage 内核心内容生产者。',
   },
 
   content_polisher: {
@@ -407,7 +370,185 @@ export const AGENT_DISPLAY_ORDER = [
   'learning_path',
   'resource_recommender',
   'study_buddy',
-  'knowledge_responder',
   'content_polisher',
   'empathy_generator',
 ];
+
+/**
+ * 每个 agent 在 Hero Slot / 详情抽屉里要重点展示的"本轮实际输出"字段。
+ * key 是 agent 内部名,值是要从 agentTrace[name].content(JSON)里提取的字段。
+ * format 函数把原始值转成短字符串;不传则直接 String()。
+ */
+export interface HighlightFieldDef {
+  key: string;          // 顶层字段名(支持点路径,如 'a.b')
+  label: string;        // 中文标签
+  format?: (v: unknown) => string;
+}
+
+export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
+  emotion_analyzer: [
+    { key: 'emotion', label: '情绪' },
+    {
+      key: 'intensity',
+      label: '强度',
+      format: (v) => (typeof v === 'number' ? `${Math.round(v * 100)}%` : '-'),
+    },
+    { key: 'trend', label: '趋势' },
+  ],
+  cognitive_diagnosis: [
+    {
+      key: 'diagnosis_source',
+      label: '数据来源',
+      format: (v: unknown) =>
+        v === 'kt_reekt'
+          ? '真实KT模型'
+          : typeof v === 'string'
+            ? v
+            : 'LLM模拟',
+    },
+    {
+      key: 'weak_points',
+      label: '薄弱点',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const names = v.slice(0, 2).map((item: any) =>
+          typeof item === 'object' && item !== null ? (item.skill_name || item.skill_id || '未命名') : String(item),
+        );
+        return names.length > 0 ? `${names.join('、')} (${v.length} 个)` : '-';
+      },
+    },
+    { key: 'knowledge_states', label: '知识点', format: (v: unknown) => (Array.isArray(v) ? `${v.length} 个` : '-') },
+    {
+      key: 'diagnosis_summary',
+      label: '诊断总结',
+      format: (v: unknown) => (typeof v === 'string' ? (v.length > 60 ? `${v.slice(0, 60)}…` : v) : '-'),
+    },
+    {
+      key: 'mastery_rates',
+      label: '掌握度',
+      format: (v: unknown) => {
+        if (typeof v !== 'object' || v === null) return '-';
+        const entries = Object.entries(v as Record<string, number>).slice(0, 3);
+        return entries.map(([k, val]) => `${k}: ${(val * 100).toFixed(0)}%`).join(' / ') || '-';
+      },
+    },
+  ],
+  learning_path: [
+    {
+      key: 'stages',
+      label: '学习阶段',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const names = v.slice(0, 2).map((item: any, i: number) =>
+          typeof item === 'object' && item !== null ? (item.name || item.stage_name || `阶段${i + 1}`) : String(item),
+        );
+        return names.length > 0 ? `${names.join('、')} (${v.length} 阶段)` : '-';
+      },
+    },
+    {
+      key: 'planning_rationale',
+      label: '规划依据',
+      format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
+    },
+  ],
+  resource_recommender: [
+    {
+      key: 'resources',
+      label: '推荐资源',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const titles = v.slice(0, 2).map((item: any) =>
+          typeof item === 'object' && item !== null ? (item.title || item.name || '未命名') : String(item),
+        );
+        return titles.length > 0 ? `${titles.join('、')} (${v.length} 个)` : '-';
+      },
+    },
+    {
+      key: 'recommendation_text',
+      label: '推荐语',
+      format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
+    },
+    {
+      key: 'resources.0.ctr_score',
+      label: 'Top CTR',
+      format: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : '无CTR'),
+    },
+    {
+      key: 'planning.recall_strategy',
+      label: '召回策略',
+      format: (v: unknown) => (typeof v === 'string' ? (v.length > 20 ? `${v.slice(0, 20)}…` : v) : '-'),
+    },
+    {
+      key: 'planning.target_count',
+      label: '目标数',
+      format: (v: unknown) => (typeof v === 'number' ? String(v) : '-'),
+    },
+    {
+      key: 'reflection.coverage_score',
+      label: '覆盖度',
+      format: (v: unknown) => (typeof v === 'number' ? `${(v * 100).toFixed(0)}%` : '-'),
+    },
+    {
+      key: 'reflection.passed',
+      label: '反思通过',
+      format: (v: unknown) => (v === true ? '是' : v === false ? '否' : '-'),
+    },
+    {
+      key: 'tool_trace',
+      label: '工具轨迹',
+      format: (v: unknown) => (Array.isArray(v) ? `${v.length} 步` : '-'),
+    },
+    {
+      key: 'plan_history',
+      label: '规划轮数',
+      format: (v: unknown) => (Array.isArray(v) ? `${v.length} 轮` : '-'),
+    },
+    {
+      key: 'reflection_history',
+      label: '反思轮数',
+      format: (v: unknown) => (Array.isArray(v) ? `${v.length} 轮` : '-'),
+    },
+  ],
+  study_buddy: [
+    {
+      key: 'buddies',
+      label: '候选学伴',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const names = v.slice(0, 2).map((item: any) =>
+          typeof item === 'object' && item !== null ? (item.name || item.username || '匿名') : String(item),
+        );
+        return names.length > 0 ? `${names.join('、')} (${v.length} 位)` : '-';
+      },
+    },
+    {
+      key: 'recommendation_text',
+      label: '推荐语',
+      format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
+    },
+  ],
+  empathy_generator: [
+    {
+      key: 'psychological_techniques',
+      label: '心理技巧',
+      format: (v) => (Array.isArray(v) ? v.slice(0, 3).join('、') : '-'),
+    },
+    {
+      key: 'empathetic_response',
+      label: '回复预览',
+      format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
+    },
+  ],
+  content_polisher: [
+    { key: 'corrections_made', label: '矫正项', format: (v) => (Array.isArray(v) ? `${v.length} 项` : '-') },
+    {
+      key: 'polished_content',
+      label: '润色预览',
+      format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
+    },
+  ],
+  safety_monitor: [
+    { key: 'action', label: '处置' },
+    { key: 'raw_action', label: '原始动作' },
+  ],
+};

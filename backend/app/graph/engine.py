@@ -40,6 +40,41 @@ _WORKFLOW_TRANSITIONS = {
 }
 
 
+def _coerce_mastery(value: Any) -> float | None:
+    """Coerce a KT mastery value (0-100 percent string/int OR 0-1 float) to a
+    0..1 float.  Returns None when the value cannot be interpreted."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            v = value.strip().rstrip("%")
+            num = float(v)
+        else:
+            num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if num <= 1.0:
+        return num
+    if num <= 100.0:
+        return num / 100.0
+    return None
+
+
+def _mastery_to_status(mastery: float | None) -> str:
+    """Map a 0..1 mastery to a status string.
+
+    Aligns with kt_integration._normalize_kt_output thresholds:
+    < 0.4 → weak, 0.4 ≤ p < 0.7 → developing, ≥ 0.7 → mastered.
+    """
+    if mastery is None:
+        return "unknown"
+    if mastery < 0.4:
+        return "weak"
+    if mastery < 0.7:
+        return "developing"
+    return "mastered"
+
+
 class TutorGraphEngine:
     """Orchestrates a single tutor graph per conversation turn.
 
@@ -93,6 +128,7 @@ class TutorGraphEngine:
         conversation_id: str,
         user_message: str,
         step_queue: asyncio.Queue | None = None,
+        thinking_steps: list | None = None,
     ) -> dict[str, Any]:
         """Process one user turn and return the assistant response.
 
@@ -112,6 +148,9 @@ class TutorGraphEngine:
             "[%s] TURN_START user_id=%s conv=%s msg='%s'",
             _trace_id, user_id, conversation_id, user_message[:200],
         )
+
+        # Generate a turn_id for this user turn so downstream logs can be grouped.
+        _turn_id = str(uuid.uuid4())
 
         # 1. Load user profile from DB
         user_profile = await self._load_user_profile(user_id)
@@ -151,8 +190,12 @@ class TutorGraphEngine:
                 "safety_context": None,
                 "safety_blocked_response": None,
                 "emotion_history": [],  # append-only; checkpoint history preserved by operator.add
+                # 每轮重置 focus 评分：新轮次由 pre-processing + decide 重新评估
+                "pre_focus": [],
+                "focus_agents": [],
             }
             state.setdefault("context", {})["_trace_id"] = _trace_id
+            state["context"]["turn_id"] = _turn_id
             # Only use DB workflow if checkpoint has none (first-turn edge case)
             if workflow_type and not state.get("workflow_type"):
                 state["workflow_type"] = workflow_type
@@ -168,7 +211,7 @@ class TutorGraphEngine:
                 "emotion_history": [],
                 "current_stage": current_stage,
                 "stage_counter": stage_counter,
-                "context": {"_trace_id": _trace_id},
+                "context": {"_trace_id": _trace_id, "turn_id": _turn_id},
                 "workflow_type": workflow_type,
                 "decision": None,
                 "next_agents": [],
@@ -178,6 +221,8 @@ class TutorGraphEngine:
                 "safety_action": None,
                 "safety_context": None,
                 "safety_blocked_response": None,
+                "pre_focus": [],
+                "focus_agents": [],
             }
 
         # 5. Run the graph (stream step progress if queue provided)
@@ -203,8 +248,13 @@ class TutorGraphEngine:
         workflow = result.get("workflow_type") or state.get("workflow_type") or ""
         stage = result.get("current_stage", "")
 
+        # 6b. Aggregate turn-level focus / KT data for the SSE done payload
+        turn_data = self._aggregate_turn_data(result, state, _turn_id)
+
         # 6. Persist results (user message already saved by chat_service)
-        await self._save_message(conversation_id, "assistant", response_text)
+        await self._save_message(
+            conversation_id, "assistant", response_text, thinking_steps
+        )
         await self._update_conversation(conversation_id, workflow, stage)
 
         # 7. Persist emotion history if emotion_analyzer ran
@@ -219,11 +269,130 @@ class TutorGraphEngine:
             "response": response_text,
             "workflow": workflow,
             "stage": stage,
+            "turn_id": _turn_id,
+            "focus_agents": turn_data["focus_agents"],
+            "touched_knowledge_nodes": turn_data["touched_knowledge_nodes"],
+            "trajectory": turn_data["trajectory"],
+            "kt_summary": turn_data["kt_summary"],
         }
 
     # ------------------------------------------------------------------
     # Graph execution helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _aggregate_turn_data(
+        result: dict[str, Any],
+        state: TutorState,
+        turn_id: str,
+    ) -> dict[str, Any]:
+        """Pull turn-level aggregated fields out of the final graph state.
+
+        Returns focus_agents / touched_knowledge_nodes / trajectory /
+        kt_summary. Fields with no source data are returned as empty
+        containers so the SSE done payload contract stays stable
+        (the frontend falls back to placeholders for empties).
+        """
+        # focus_agents：decide 或 response_assembler 已写入
+        focus_agents: list[str] = []
+        fa_raw = result.get("focus_agents") or state.get("focus_agents") or []
+        if isinstance(fa_raw, list):
+            for a in fa_raw:
+                if isinstance(a, str) and a and a not in focus_agents:
+                    focus_agents.append(a)
+                if len(focus_agents) >= 2:
+                    break
+
+        # KT 输出：context.cognitive_diagnosis（emotion_preprocess / stage_executor
+        # 写入；cognitive_diagnosis 已集成的真实输出，禁止 mock）
+        ctx = result.get("context") or state.get("context") or {}
+        cd = ctx.get("cognitive_diagnosis") if isinstance(ctx, dict) else None
+        cd = cd if isinstance(cd, dict) else None
+
+        # touched_knowledge_nodes：从 KT knowledge_states 转 KnowledgeNode 格式
+        touched_nodes: list[dict[str, Any]] = []
+        trajectory: list[str] = []
+        # kt_summary 默认含全部 key(契约稳定),前端无需做空对象兜底
+        kt_summary: dict[str, Any] = {
+            "knowledgeStates": [],
+            "weakPoints": [],
+            "diagnosisSummary": "",
+            "diagnosisSource": "llm_simulation",
+            "modelInfo": {},
+            "metrics": {},
+        }
+        if cd:
+            states_raw = cd.get("knowledge_states") or []
+            weak_points_raw = cd.get("weak_points") or []
+            # KT 把 weak_points 输出成 list[dict]（每个含 skill_id / skill_name），
+            # 旧路径会序列化成 "{'skill_id': ...}" 垃圾字符串。统一抽取 skill_id。
+            if isinstance(weak_points_raw, list):
+                wp_ids: list[str] = []
+                seen_wp: set[str] = set()
+                for w in weak_points_raw:
+                    if isinstance(w, dict):
+                        sid = w.get("skill_id") or w.get("skill_name")
+                    else:
+                        sid = w
+                    if sid is None:
+                        continue
+                    sid_str = str(sid)
+                    if sid_str and sid_str not in seen_wp:
+                        seen_wp.add(sid_str)
+                        wp_ids.append(sid_str)
+                kt_summary["weakPoints"] = wp_ids
+            if isinstance(states_raw, list):
+                focus_set = set(focus_agents)
+                for ks in states_raw:
+                    if not isinstance(ks, dict):
+                        continue
+                    skill_id = str(ks.get("skill_id") or ks.get("skill_name") or "")
+                    if not skill_id:
+                        continue
+                    label = str(ks.get("skill_name") or skill_id)
+                    # 优先用 KT 的浮点 mastery_rate（精确），降级到 mastery_percent（字符串）
+                    mastery = _coerce_mastery(ks.get("mastery_rate"))
+                    if mastery is None:
+                        mastery = _coerce_mastery(ks.get("mastery_percent"))
+                    # 优先用 KT 给的 status（developing 是合法中间档），降级再推导
+                    ks_status_raw = ks.get("status")
+                    status = ks_status_raw if isinstance(ks_status_raw, str) and ks_status_raw else _mastery_to_status(mastery)
+                    is_highlight = (
+                        mastery is not None and mastery < 0.4
+                    ) or skill_id in focus_set
+                    touched_nodes.append({
+                        "id": skill_id,
+                        "label": label,
+                        "mastery": mastery if mastery is not None else None,
+                        "isHighlight": is_highlight,
+                        "status": status,
+                    })
+                    kt_summary["knowledgeStates"].append({
+                        "skillId": skill_id,
+                        "skillName": label,
+                        "mastery": mastery if mastery is not None else 0.0,
+                        "status": status,
+                    })
+                    # trajectory：按 KT 输出顺序串 skill_id
+                    trajectory.append(skill_id)
+
+            kt_summary["diagnosisSummary"] = cd.get("diagnosis_summary") or ""
+            # KT 来源标识(modelInfo/metrics/diagnosisSource),让前端能验证是否真跑了 KT 模型
+            mi = cd.get("kt_model_info")
+            kt_summary["modelInfo"] = mi if isinstance(mi, dict) else {}
+            km = cd.get("kt_metrics")
+            kt_summary["metrics"] = km if isinstance(km, dict) else {}
+            ds = cd.get("diagnosis_source")
+            if isinstance(ds, str) and ds:
+                kt_summary["diagnosisSource"] = ds
+
+        return {
+            "turn_id": turn_id,
+            "focus_agents": focus_agents,
+            "touched_knowledge_nodes": touched_nodes,
+            "trajectory": trajectory,
+            "kt_summary": kt_summary,
+        }
 
     @staticmethod
     def _extract_thinking(node_name: str, node_output: dict | None) -> str:
@@ -277,20 +446,14 @@ class TutorGraphEngine:
                 ctx = out.get("context") or {}
                 last_agent = ctx.get("_last_agent", "")
                 last_output = ctx.get("_last_output") or {}
-                payload: dict[str, Any] = {}
-                if last_agent:
+                # 直接用 agent 实际输出作为顶层(前端 AGENT_HIGHLIGHT_FIELDS 按 agent 输出 schema 查询)
+                # 不再包 {agent, agent_output, accumulated_outputs} 层,避免前端找不到字段
+                payload: dict[str, Any] = dict(last_output) if isinstance(last_output, dict) else {}
+                if last_agent and "agent" not in payload:
                     payload["agent"] = last_agent
-                if last_output:
-                    payload["agent_output"] = last_output
                 remaining = out.get("next_agents", [])
                 if remaining:
-                    payload["remaining_agents"] = remaining
-                # Include all accumulated agent outputs from context
-                for key in ("cognitive_diagnosis", "learning_path", "resource_recommender",
-                            "study_buddy", "knowledge_responder", "content_polisher",
-                            "empathy_generator"):
-                    if key in ctx and key not in payload.get("agent_output", {}):
-                        payload.setdefault("accumulated_outputs", {})[key] = ctx[key]
+                    payload["_remaining_agents"] = remaining
                 return _json.dumps(payload, ensure_ascii=False, indent=2, default=str) if payload else ""
 
             if node_name == "assemble_response":
@@ -338,6 +501,14 @@ class TutorGraphEngine:
             "empathy_generator": "共情回应",
         }
 
+        # Graph 节点名 → 内部 agent 名映射(用于 SSE thinking/step 事件的 step 字段)
+        # 前端 chatStore 用 step 字段作为 agentName 写入 agentTrace,抽屉按 agent 内部名查询。
+        # 不在此映射的节点(decide/assemble_response 等)保留节点名,前端抽屉不查它们。
+        NODE_TO_AGENT: dict[str, str] = {
+            "safety_check": "safety_monitor",
+            "emotion_preprocess": "emotion_analyzer",
+        }
+
         NEXT_LABEL: dict[str, str] = {
             "safety_check": "正在进行情感分析",
             "emotion_preprocess": "正在进行智能决策",
@@ -351,7 +522,7 @@ class TutorGraphEngine:
         agent_labels_var.set(AGENT_LABELS)
 
         # First step label (before graph starts)
-        await step_queue.put({"type": "step", "label": "正在进行安全检查"})
+        await step_queue.put({"type": "step", "label": "正在进行安全检查", "step": "safety_monitor"})
 
         async for event in self._graph.astream(
             state, config=config, stream_mode="updates"
@@ -360,7 +531,7 @@ class TutorGraphEngine:
 
                 # execute_stage: stage_executor already emitted per-agent events
                 if node_name == "execute_stage":
-                    await step_queue.put({"type": "step", "label": "正在生成回复"})
+                    await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
                     continue
 
                 # execute_agent: use agent-specific Chinese label
@@ -381,9 +552,9 @@ class TutorGraphEngine:
                     remaining = (node_output or {}).get("next_agents", [])
                     if remaining:
                         next_label = AGENT_LABELS.get(remaining[0], remaining[0])
-                        await step_queue.put({"type": "step", "label": f"正在运行{next_label}"})
+                        await step_queue.put({"type": "step", "label": f"正在运行{next_label}", "step": remaining[0]})
                     else:
-                        await step_queue.put({"type": "step", "label": "正在生成回复"})
+                        await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
                     continue
 
                 # All other nodes
@@ -392,7 +563,7 @@ class TutorGraphEngine:
                     await step_queue.put({
                         "type": "thinking",
                         "content": thinking,
-                        "step": node_name,
+                        "step": NODE_TO_AGENT.get(node_name, node_name),
                         "label": STEP_LABEL.get(node_name, node_name),
                     })
 
@@ -406,14 +577,14 @@ class TutorGraphEngine:
                         next_agents = (node_output or {}).get("next_agents", [])
                         if next_agents:
                             agent_lbl = AGENT_LABELS.get(next_agents[0], next_agents[0])
-                            await step_queue.put({"type": "step", "label": f"正在运行{agent_lbl}"})
+                            await step_queue.put({"type": "step", "label": f"正在运行{agent_lbl}", "step": next_agents[0]})
                         else:
-                            await step_queue.put({"type": "step", "label": "正在运行智能体"})
+                            await step_queue.put({"type": "step", "label": "正在运行智能体", "step": ""})
                     else:
-                        await step_queue.put({"type": "step", "label": "正在生成回复"})
+                        await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
                 elif node_name in NEXT_LABEL:
                     await step_queue.put(
-                        {"type": "step", "label": NEXT_LABEL[node_name]}
+                        {"type": "step", "label": NEXT_LABEL[node_name], "step": NODE_TO_AGENT.get(node_name, node_name)}
                     )
 
         # Retrieve final state from checkpointer
@@ -465,7 +636,11 @@ class TutorGraphEngine:
             return result.scalar_one_or_none()
 
     async def _save_message(
-        self, conversation_id: str, role: str, content: str
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        thinking_steps: list | None = None,
     ) -> None:
         async with AsyncSessionLocal() as session:
             msg = Message(
@@ -473,6 +648,7 @@ class TutorGraphEngine:
                 conversation_id=conversation_id,
                 role=role,
                 content=content,
+                thinking_steps=thinking_steps,
             )
             session.add(msg)
             await session.commit()
