@@ -50,9 +50,11 @@ class TutorState(TypedDict):
     interrupt_reason: Optional[str]       # why it paused (e.g. "need clarification")
 
     # ── Safety pipeline ──────────────────────────────────────────────
-    safety_action: Optional[str]           # SAFE/TRANSFORM/SOFT_BLOCK/HARD_BLOCK/REFERRAL
-    safety_context: Optional[dict]         # 安全管线中间结果
-    safety_blocked_response: Optional[str] # 拦截时的预设回复
+    safety_branch: Optional[str]           # PASS/REJECT/GUIDE
+    safety_action: Optional[str]           # 兼容旧调用方，值与 safety_branch 相同
+    safety_context: Optional[dict]         # 分类结果与 Skill 输出
+    safety_response: Optional[str]         # REJECT/GUIDE 的直接回复
+    safety_blocked_response: Optional[str] # 兼容旧 checkpoint
 
     # ── 本轮重点 agent 评分（decide 之前由 pre-processing 节点写入） ──
     # 短路场景下 decide 不执行，pre_focus 必须被 response_assembler 转发

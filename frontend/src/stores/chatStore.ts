@@ -7,6 +7,7 @@ import type {
   KnowledgeNode,
   AgentTimelineItem,
   StreamDonePayload,
+  SafetyGuide,
 } from '@/types';
 
 interface ChatState {
@@ -25,6 +26,7 @@ interface ChatState {
   currentAgent: string | null;
   /** 累积 agent 输出,按 agent name 分桶;切换对话时清空 */
   agentTrace: Record<string, { content: string; label: string; updatedAt: string }>;
+  pendingSafetyGuide: SafetyGuide | null;
 
   // ── 新增:turn 级字段 ──
   /** 当前轮次聚合数据(用户发一条消息 + AI 完整回复 = 一轮) */
@@ -73,6 +75,7 @@ interface ChatState {
   finalizeTurn: (done: StreamDonePayload) => void;
   /** 切换对话时清空所有 turn 级字段(并清 agentTrace) */
   resetTurn: () => void;
+  clearPendingSafetyGuide: () => void;
   /** 设置详情抽屉当前 agent(null 关闭抽屉) */
   setSelectedDetailAgent: (name: string | null) => void;
 }
@@ -97,6 +100,7 @@ const initialState = {
   currentTouchedNodes: [] as KnowledgeNode[],
   activeNodeId: undefined as string | undefined,
   selectedDetailAgent: null as string | null,
+  pendingSafetyGuide: null as SafetyGuide | null,
 };
 
 // turn 级初始切片(供 resetTurn 复用,不包含 conversationId 等)
@@ -108,6 +112,7 @@ const initialTurnSlice = {
   activeNodeId: undefined as string | undefined,
   agentTrace: {} as Record<string, { content: string; label: string; updatedAt: string }>,
   selectedDetailAgent: null as string | null,
+  pendingSafetyGuide: null as SafetyGuide | null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -145,6 +150,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   resetTurn: () =>
     set({ ...initialTurnSlice }),
+
+  clearPendingSafetyGuide: () => set({ pendingSafetyGuide: null }),
 
   setMessages: (messages) => set({ messages }),
 
@@ -300,6 +307,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       currentFocusAgents: [],
       currentTouchedNodes: [],
       activeNodeId: undefined,
+      pendingSafetyGuide: null,
     });
   },
 
@@ -336,7 +344,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => {
       if (!s.currentTurn) {
         // 极端情况:done 早于 startTurn 到达,补建一个
-        return s;
+        return { pendingSafetyGuide: done.safetyGuide ?? null };
       }
       const focusAgents = done.focusAgents ?? s.currentTurn.focusAgents;
       const touchedNodes = done.touchedNodes ?? s.currentTurn.touchedNodes;
@@ -358,6 +366,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         turnHistory: [...s.turnHistory, finalTurn],
         currentFocusAgents: focusAgents,
         currentTouchedNodes: touchedNodes,
+        pendingSafetyGuide: done.safetyGuide ?? null,
       };
     }),
 

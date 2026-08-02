@@ -186,8 +186,10 @@ class TutorGraphEngine:
                 "final_response": None,
                 "requires_user_input": False,
                 "interrupt_reason": None,
+                "safety_branch": None,
                 "safety_action": None,
                 "safety_context": None,
+                "safety_response": None,
                 "safety_blocked_response": None,
                 "emotion_history": [],  # append-only; checkpoint history preserved by operator.add
                 # 每轮重置 focus 评分：新轮次由 pre-processing + decide 重新评估
@@ -196,6 +198,9 @@ class TutorGraphEngine:
             }
             state.setdefault("context", {})["_trace_id"] = _trace_id
             state["context"]["turn_id"] = _turn_id
+            state["context"]["_content_regeneration_count"] = 0
+            state["context"].pop("content_corrector", None)
+            state["context"].pop("knowledge_responder_regeneration", None)
             # Only use DB workflow if checkpoint has none (first-turn edge case)
             if workflow_type and not state.get("workflow_type"):
                 state["workflow_type"] = workflow_type
@@ -218,8 +223,10 @@ class TutorGraphEngine:
                 "final_response": None,
                 "requires_user_input": False,
                 "interrupt_reason": None,
+                "safety_branch": None,
                 "safety_action": None,
                 "safety_context": None,
+                "safety_response": None,
                 "safety_blocked_response": None,
                 "pre_focus": [],
                 "focus_agents": [],
@@ -270,6 +277,8 @@ class TutorGraphEngine:
             "workflow": workflow,
             "stage": stage,
             "turn_id": _turn_id,
+            "safety_branch": result.get("safety_branch"),
+            "safety_context": result.get("safety_context"),
             "focus_agents": turn_data["focus_agents"],
             "touched_knowledge_nodes": turn_data["touched_knowledge_nodes"],
             "trajectory": turn_data["trajectory"],
@@ -402,27 +411,22 @@ class TutorGraphEngine:
         out = node_output or {}
         try:
             if node_name == "safety_check":
-                action = out.get("safety_action", "SAFE")
+                action = out.get("safety_branch") or out.get("safety_action", "PASS")
                 action_map = {
-                    "SAFE": "安全放行",
-                    "TRANSFORM": "内容转换",
-                    "SOFT_BLOCK": "软性拦截",
-                    "HARD_BLOCK": "硬性拦截",
-                    "REFERRAL": "转介处理",
+                    "PASS": "直接放行",
+                    "REJECT": "直接拒绝",
+                    "GUIDE": "教育引导",
                 }
                 payload: dict[str, Any] = {
-                    "action": action_map.get(action, action),
-                    "raw_action": action,
+                    "branch": action_map.get(action, action),
+                    "raw_branch": action,
                 }
                 ctx = out.get("safety_context")
                 if ctx:
                     payload["safety_context"] = ctx
-                blocked = out.get("safety_blocked_response")
-                if blocked:
-                    payload["blocked_response"] = blocked
-                msgs = out.get("messages")
-                if msgs:
-                    payload["transformed_message"] = msgs[-1].content if hasattr(msgs[-1], "content") else str(msgs[-1])
+                direct_response = out.get("safety_response") or out.get("safety_blocked_response")
+                if direct_response:
+                    payload["direct_response"] = direct_response
                 return _json.dumps(payload, ensure_ascii=False, indent=2, default=str)
 
             if node_name == "emotion_preprocess":
@@ -456,6 +460,24 @@ class TutorGraphEngine:
                     payload["_remaining_agents"] = remaining
                 return _json.dumps(payload, ensure_ascii=False, indent=2, default=str) if payload else ""
 
+            if node_name == "correct_content":
+                ctx = out.get("context") or {}
+                correction = ctx.get("content_corrector") or {}
+                return (
+                    _json.dumps(correction, ensure_ascii=False, indent=2, default=str)
+                    if correction
+                    else ""
+                )
+
+            if node_name == "regenerate_content":
+                ctx = out.get("context") or {}
+                regenerated = ctx.get("knowledge_responder_regeneration") or {}
+                return (
+                    _json.dumps(regenerated, ensure_ascii=False, indent=2, default=str)
+                    if regenerated
+                    else ""
+                )
+
             if node_name == "assemble_response":
                 resp = out.get("final_response", "")
                 payload = {"final_response_preview": resp[:500] + ("..." if len(resp) > 500 else "")} if resp else {"final_response": ""}
@@ -488,6 +510,8 @@ class TutorGraphEngine:
             "decide": "智能决策",
             "execute_stage": "教学流程",
             "execute_agent": "智能体运行",
+            "correct_content": "内容矫正",
+            "regenerate_content": "内容重写",
             "assemble_response": "回复组装",
         }
 
@@ -498,6 +522,7 @@ class TutorGraphEngine:
             "study_buddy": "学习伙伴",
             "knowledge_responder": "知识问答",
             "content_polisher": "内容润色",
+            "content_corrector": "内容矫正",
             "empathy_generator": "共情回应",
         }
 
@@ -507,11 +532,21 @@ class TutorGraphEngine:
         NODE_TO_AGENT: dict[str, str] = {
             "safety_check": "safety_monitor",
             "emotion_preprocess": "emotion_analyzer",
+            "correct_content": "content_corrector",
+            "regenerate_content": "knowledge_responder",
         }
 
         NEXT_LABEL: dict[str, str] = {
             "safety_check": "正在进行情感分析",
             "emotion_preprocess": "正在进行智能决策",
+            "correct_content": "正在组装最终回复",
+            "regenerate_content": "正在重新验收内容",
+        }
+        NEXT_STEP: dict[str, str] = {
+            "safety_check": "emotion_analyzer",
+            "emotion_preprocess": "decide",
+            "correct_content": "assemble_response",
+            "regenerate_content": "content_corrector",
         }
 
         # Pass step_queue to stage_executor via ContextVar (not state –
@@ -531,7 +566,7 @@ class TutorGraphEngine:
 
                 # execute_stage: stage_executor already emitted per-agent events
                 if node_name == "execute_stage":
-                    await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
+                    await step_queue.put({"type": "step", "label": "正在进行内容矫正", "step": "content_corrector"})
                     continue
 
                 # execute_agent: use agent-specific Chinese label
@@ -554,7 +589,7 @@ class TutorGraphEngine:
                         next_label = AGENT_LABELS.get(remaining[0], remaining[0])
                         await step_queue.put({"type": "step", "label": f"正在运行{next_label}", "step": remaining[0]})
                     else:
-                        await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
+                        await step_queue.put({"type": "step", "label": "正在进行内容矫正", "step": "content_corrector"})
                     continue
 
                 # All other nodes
@@ -583,9 +618,25 @@ class TutorGraphEngine:
                     else:
                         await step_queue.put({"type": "step", "label": "正在生成回复", "step": "assemble_response"})
                 elif node_name in NEXT_LABEL:
-                    await step_queue.put(
-                        {"type": "step", "label": NEXT_LABEL[node_name], "step": NODE_TO_AGENT.get(node_name, node_name)}
-                    )
+                    if node_name == "safety_check" and (
+                        (node_output or {}).get("safety_branch")
+                        or (node_output or {}).get("safety_action")
+                    ) in {"REJECT", "GUIDE"}:
+                        await step_queue.put(
+                            {"type": "step", "label": "正在生成安全回复", "step": "assemble_response"}
+                        )
+                    elif node_name == "correct_content" and (
+                        ((node_output or {}).get("context") or {})
+                        .get("content_corrector", {})
+                        .get("action")
+                    ) == "REGENERATE":
+                        await step_queue.put(
+                            {"type": "step", "label": "正在重新生成教育回复", "step": "knowledge_responder"}
+                        )
+                    else:
+                        await step_queue.put(
+                            {"type": "step", "label": NEXT_LABEL[node_name], "step": NEXT_STEP[node_name]}
+                        )
 
         # Retrieve final state from checkpointer
         snapshot = await self._graph.aget_state(config)

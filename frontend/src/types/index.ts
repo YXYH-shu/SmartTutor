@@ -141,6 +141,12 @@ export interface KtSummary {
   metrics?: Record<string, unknown>;
 }
 
+export interface SafetyGuide {
+  safeQuery: string;
+  options: string[];
+  recommendedOption?: string;
+}
+
 // 轮次级聚合数据(一个对话轮 = 用户发一条消息 + AI 完整回复)
 export interface TurnData {
   turnId: string;
@@ -163,6 +169,7 @@ export interface StreamDonePayload {
   touchedNodes?: KnowledgeNode[];
   trajectory?: string[];
   ktSummary?: KtSummary;
+  safetyGuide?: SafetyGuide;
 }
 
 /* ── Pagination ───────────────────────────────────────────────── */

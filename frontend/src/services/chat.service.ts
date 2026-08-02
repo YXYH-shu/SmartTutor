@@ -74,6 +74,25 @@ function parseDonePayload(raw: any): StreamDonePayload {
     }
     p.ktSummary = summary;
   }
+  const guideRaw = raw.safetyGuide ?? raw.safety_guide;
+  if (guideRaw && typeof guideRaw === 'object') {
+    const safeQuery = guideRaw.safeQuery ?? guideRaw.safe_query;
+    const optionsRaw = guideRaw.options ?? guideRaw.learning_options;
+    const recommendedRaw = guideRaw.recommendedOption ?? guideRaw.recommended_option;
+    const options = Array.isArray(optionsRaw)
+      ? optionsRaw.filter((x: unknown): x is string => typeof x === 'string' && x.trim().length > 0)
+      : [];
+    if (typeof safeQuery === 'string' && safeQuery.trim() && options.length > 0) {
+      p.safetyGuide = {
+        safeQuery: safeQuery.trim(),
+        options: options.slice(0, 3),
+        recommendedOption:
+          typeof recommendedRaw === 'string' && options.includes(recommendedRaw.trim())
+            ? recommendedRaw.trim()
+            : options[0],
+      };
+    }
+  }
   return p;
 }
 

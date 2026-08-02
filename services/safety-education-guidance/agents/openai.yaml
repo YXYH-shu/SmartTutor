@@ -1,0 +1,4 @@
+interface:
+  display_name: "安全教育引导"
+  short_description: "按学科领域生成贴合原题的安全问题与学习方向"
+  default_prompt: "Use $safety-education-guidance to transform a risky but teachable question into domain-appropriate, topic-specific choices for downstream education agents."

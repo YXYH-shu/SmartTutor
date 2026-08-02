@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 _engine = None
 
 
+def _extract_safety_guide(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the GUIDE-only frontend contract from the Skill output."""
+    if result.get("safety_branch") != "GUIDE":
+        return None
+    safety_context = result.get("safety_context")
+    if not isinstance(safety_context, dict):
+        return None
+    skill_result = safety_context.get("guidance_skill")
+    if not isinstance(skill_result, dict) or skill_result.get("status") not in {"ok", "fallback"}:
+        return None
+    safe_query = skill_result.get("safe_query")
+    raw_options = skill_result.get("learning_options")
+    if not isinstance(safe_query, str) or not safe_query.strip():
+        return None
+    if not isinstance(raw_options, list):
+        return None
+    options = [item.strip() for item in raw_options if isinstance(item, str) and item.strip()]
+    if not options:
+        return None
+    recommended = skill_result.get("recommended_option")
+    if not isinstance(recommended, str) or recommended.strip() not in options:
+        recommended = options[0]
+    else:
+        recommended = recommended.strip()
+    return {
+        "safeQuery": safe_query.strip(),
+        "options": options[:3],
+        "recommendedOption": recommended,
+    }
+
+
 def _get_engine():
     global _engine
     if _engine is None:
@@ -181,6 +212,7 @@ async def stream_message(
     }
     if isinstance(kt_summary, dict) and kt_summary.get("diagnosisSummary"):
         kt_summary_clean["diagnosisSummary"] = kt_summary["diagnosisSummary"]
+    safety_guide = _extract_safety_guide(result)
     meta = json.dumps(
         {
             "type": "done",
@@ -193,6 +225,7 @@ async def stream_message(
             "touchedNodes": result.get("touched_knowledge_nodes") or [],
             "trajectory": result.get("trajectory") or [],
             "ktSummary": kt_summary_clean,
+            "safetyGuide": safety_guide,
         },
         ensure_ascii=False,
     )

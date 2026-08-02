@@ -17,7 +17,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, Cpu, Sparkles } from 'lucide-react';
+import { Ban, ChevronDown, ChevronRight, Cpu, GraduationCap, ShieldCheck, Sparkles } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { renderValue } from '@/utils/jsonTree';
 import { useChatStore } from '@/stores/chatStore';
@@ -30,6 +30,96 @@ interface ExtractedFields {
   decision?: unknown;
   next_agents?: unknown;
   workflow_type?: unknown;
+}
+
+type SafetyBranch = 'PASS' | 'REJECT' | 'GUIDE';
+
+function SafetyBranchFlow({ value }: { value: Record<string, unknown> }) {
+  const branch = String(value.raw_branch ?? '').toUpperCase() as SafetyBranch;
+  if (!['PASS', 'REJECT', 'GUIDE'].includes(branch)) return null;
+
+  const safetyContext =
+    typeof value.safety_context === 'object' && value.safety_context !== null
+      ? (value.safety_context as Record<string, unknown>)
+      : {};
+  const guide =
+    typeof safetyContext.guidance_skill === 'object' && safetyContext.guidance_skill !== null
+      ? (safetyContext.guidance_skill as Record<string, unknown>)
+      : null;
+  const classifier =
+    typeof safetyContext.classifier === 'object' && safetyContext.classifier !== null
+      ? (safetyContext.classifier as Record<string, unknown>)
+      : {};
+  const options = Array.isArray(guide?.learning_options)
+    ? guide.learning_options.map(String)
+    : [];
+  const recommendedOption = String(guide?.recommended_option ?? '');
+  const branches: Array<{ id: SafetyBranch; label: string; Icon: typeof ShieldCheck }> = [
+    { id: 'PASS', label: '进入学习', Icon: ShieldCheck },
+    { id: 'REJECT', label: '安全回应', Icon: Ban },
+    { id: 'GUIDE', label: '教育引导', Icon: GraduationCap },
+  ];
+
+  return (
+    <div className="mb-2 border-b border-border-subtle pb-2">
+      <div className="grid grid-cols-3 gap-2">
+        {branches.map(({ id, label, Icon }) => {
+          const active = branch === id;
+          return (
+            <div
+              key={id}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-12',
+                active
+                  ? 'border-accent/40 bg-accent-soft text-accent'
+                  : 'border-border-subtle bg-bg-base text-text-tertiary',
+              )}
+            >
+              <Icon size={14} strokeWidth={1.5} />
+              <span>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md border border-border-subtle bg-bg-base px-2 py-2 text-11 sm:grid-cols-3">
+        <span className="text-text-tertiary">
+          决策来源：<b className="font-mono font-normal text-text-secondary">{String(classifier.decision_source ?? 'unknown')}</b>
+        </span>
+        <span className="text-text-tertiary">
+          主模型：<b className="font-mono font-normal text-text-secondary">{String(classifier.primary_model_status ?? 'unknown')}</b>
+        </span>
+        <span className="text-text-tertiary">
+          裁决原因：<b className="font-mono font-normal text-text-secondary">{String(classifier.adjudication_reason ?? '无')}</b>
+        </span>
+        <span className="text-text-tertiary">
+          对象：<b className="font-mono font-normal text-text-secondary">{String(classifier.target_type ?? 'unknown')}</b>
+        </span>
+        <span className="text-text-tertiary">
+          程度：<b className="font-mono font-normal text-text-secondary">{String(classifier.harm_severity ?? 'none')}</b>
+        </span>
+        <span className="text-text-tertiary">
+          请求：<b className="font-mono font-normal text-text-secondary">{String(classifier.request_type ?? 'unknown')}</b>
+        </span>
+      </div>
+      {branch === 'GUIDE' && guide && (
+        <div className="mt-2 rounded-md border border-border-subtle bg-bg-base px-2 py-2">
+          <div className="flex items-center gap-1.5 text-12 text-text-secondary">
+            <GraduationCap size={14} strokeWidth={1.5} />
+            <span>📘 已整理为两阶段学习路径</span>
+          </div>
+          {options.length > 0 && (
+            <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-12 text-text-tertiary">
+              {options.map((option) => (
+                <li key={option}>
+                  {option}{option === recommendedOption ? '（✨ 推荐起点）' : ''}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function extractFields(content: string): ExtractedFields | null {
@@ -188,6 +278,9 @@ function AgentTraceBlock({
         {/* 内容渲染(沿用 renderValue) */}
         {!isRunning && open && (
           <div className="mt-2 text-12 leading-relaxed text-text-secondary">
+            {agentName === 'safety_monitor' && typeof parsed === 'object' && parsed !== null && (
+              <SafetyBranchFlow value={parsed as Record<string, unknown>} />
+            )}
             {renderValue(parsed)}
           </div>
         )}
