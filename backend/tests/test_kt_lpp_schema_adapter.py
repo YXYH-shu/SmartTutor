@@ -8,6 +8,7 @@ from jsonschema import validate
 from app.config import settings
 from app.services import kt_integration
 from app.services.agents.cognitive_diagnosis import CognitiveDiagnosisAgent
+from app.services.agents.knowledge_responder import KnowledgeResponderAgent
 from app.services.agents.learning_path import LearningPathAgent
 from app.services.lpp_integration import LppRuntimeOutput
 
@@ -183,6 +184,108 @@ def test_diagnosis_prompt_context_is_bounded_for_learning_path():
     assert CognitiveDiagnosisAgent._mastery_probability(
         {"mastery_percent": "25.0%"}
     ) == pytest.approx(0.25)
+
+
+@pytest.mark.asyncio
+async def test_knowledge_responder_prompt_uses_bounded_kt_and_lpp_context():
+    diagnosis = {
+        "topic_analysis": "当前主题为科学学情诊断。",
+        "diagnosis_summary": "需要优先巩固基础概念。",
+        "cognitive_attribution": {"root_causes": ["前置知识不牢固"]},
+        "recommended_actions": ["先完成基础练习"],
+        "diagnosis_source": "kt_rekt",
+        "kt_student_id": "43",
+        "knowledge_states": _diagnosis_states(),
+        "mastery_rates": {"full-mastery-rates-secret": 0.1},
+        "weak_points": [{"evidence": "full-weak-points-secret"}],
+        "knowledge_graph": {"secret": "full-knowledge-graph-secret"},
+        "kt_metrics": {"secret": "full-metrics-secret"},
+        "kt_model_info": {"secret": "full-model-info-secret"},
+    }
+    learning_plan = {
+        "planning_rationale": "按照先基础后迁移的顺序安排练习。",
+        "total_estimated_time": "约50分钟",
+        "adaptive_rules": "答错时回到对应知识点进行补救。",
+        "milestones": [f"完成 P{index}" for index in range(1, 6)],
+        "path_adjustment_triggers": {
+            "accelerate": "五题全部答对",
+            "remediate": "基础题答错",
+            "redirect": "安全判断题答错",
+        },
+        "recommended_questions": _lpp_runtime_result()["recommendation"]["questions"],
+        "learning_path": [{"secret": "full-learning-path-secret"}],
+        "stages": [{"secret": "duplicate-stages-secret"}],
+        "target": {"secret": "full-target-secret"},
+    }
+    agent = KnowledgeResponderAgent(llm=MagicMock())
+
+    enriched = await agent.enrich_input(
+        {
+            "current_message": "请汇总诊断和学习路径",
+            "recent_messages": [],
+            "stage": "diagnosis_and_plan",
+            "diagnosis_result": diagnosis,
+            "learning_plan": learning_plan,
+            "cognitive_diagnosis": diagnosis,
+            "learning_path": learning_plan,
+            "mastery_rates": {"raw-context-secret": 0.1},
+            "knowledge_graph": {"secret": "raw-graph-secret"},
+            "user_profile": {
+                "current_level": "初级",
+                "learning_style": "视觉型",
+                "grade_level": "五年级",
+                "weak_points": [{"secret": "profile-weak-points-secret"}],
+                "knowledge_graph": {"secret": "profile-graph-secret"},
+                "preferences": {"secret": "profile-preferences-secret"},
+            },
+        },
+        {},
+    )
+    rendered = agent._render_prompt(enriched)
+
+    assert enriched["diagnosis_result"]["total_count"] == 40
+    assert enriched["diagnosis_result"]["weak_count"] == 25
+    assert [
+        state["skill_id"]
+        for state in enriched["diagnosis_result"]["priority_states"]
+    ] == [f"weak-{index}" for index in range(10)]
+    assert enriched["diagnosis_result"]["diagnosis_summary"] == "需要优先巩固基础概念。"
+    assert enriched["diagnosis_result"]["cognitive_attribution"] == {
+        "root_causes": ["前置知识不牢固"]
+    }
+    assert [
+        question["order"]
+        for question in enriched["learning_plan"]["recommended_questions"]
+    ] == [1, 2, 3, 4, 5]
+    assert enriched["learning_plan"]["planning_rationale"] == (
+        "按照先基础后迁移的顺序安排练习。"
+    )
+    assert enriched["user_profile"] == {
+        "current_level": "初级",
+        "learning_style": "视觉型",
+        "grade_level": "五年级",
+        "weak_points": [f"薄弱知识点{index}" for index in range(10)],
+    }
+    assert "cognitive_diagnosis" not in enriched
+    assert "learning_path" not in enriched
+    assert "mastery_rates" not in enriched
+    assert "knowledge_graph" not in enriched
+    for forbidden in (
+        "full-mastery-rates-secret",
+        "full-weak-points-secret",
+        "full-knowledge-graph-secret",
+        "full-metrics-secret",
+        "full-model-info-secret",
+        "full-learning-path-secret",
+        "duplicate-stages-secret",
+        "full-target-secret",
+        "raw-context-secret",
+        "raw-graph-secret",
+        "profile-weak-points-secret",
+        "profile-graph-secret",
+        "profile-preferences-secret",
+    ):
+        assert forbidden not in rendered
 
 
 def _lpp_runtime_result() -> dict:
