@@ -27,6 +27,26 @@ logger = logging.getLogger(__name__)
 class CognitiveDiagnosisAgent(BaseAgent):
     config_file = "cognitive_diagnosis"
 
+    @staticmethod
+    def _mastery_probability(knowledge_state: dict[str, Any]) -> float:
+        """Normalize a KT mastery value to a probability in [0, 1]."""
+        raw_rate = knowledge_state.get("mastery_rate")
+        if raw_rate is not None:
+            try:
+                return max(0.0, min(1.0, float(raw_rate)))
+            except (TypeError, ValueError):
+                pass
+
+        raw_percent = knowledge_state.get("mastery_percent", 0)
+        try:
+            if isinstance(raw_percent, str):
+                value = float(raw_percent.strip().removesuffix("%")) / 100.0
+            else:
+                value = float(raw_percent)
+            return max(0.0, min(1.0, value))
+        except (TypeError, ValueError):
+            return 0.0
+
     async def execute(
         self,
         input_data: dict[str, Any],
@@ -40,19 +60,46 @@ class CognitiveDiagnosisAgent(BaseAgent):
         context = context or {}
 
         if settings.kt.mode == "integrated":
-            student_id = input_data.get("student_id") or context.get("student_id")
-            if student_id:
-                kt_result = await self._run_kt_diagnosis(str(student_id), input_data, context)
-                if kt_result is not None:
-                    return await self._merge_kt_with_llm(kt_result, input_data, context)
-                # KT 失败
-                if not settings.kt.fallback_to_llm:
-                    raise RuntimeError(
-                        f"KT diagnosis failed and fallback_to_llm=False for student {student_id}"
-                    )
-                logger.warning("KT failed — falling back to LLM-only diagnosis")
+            from app.services.kt_integration import resolve_kt_student_id
+
+            student_id = resolve_kt_student_id(input_data, context)
+            if not student_id:
+                return self._unavailable_result("未找到可用的 KT 学生编号")
+
+            kt_result = await self._run_kt_diagnosis(student_id, input_data, context)
+            if kt_result is not None:
+                execution_context = {**context, "kt_student_id": student_id}
+                return await self._merge_kt_with_llm(
+                    kt_result,
+                    input_data,
+                    execution_context,
+                )
+            if not settings.kt.fallback_to_llm:
+                return self._unavailable_result("KT Skill 本次运行失败，请稍后重试")
+            logger.warning("KT failed — falling back to LLM-only diagnosis")
 
         return await super().execute(input_data, context)
+
+    def _unavailable_result(self, reason: str) -> dict[str, Any]:
+        return {
+            "agent": self.name,
+            "output": {
+                "topic_analysis": reason,
+                "knowledge_states": [],
+                "mastery_rates": {},
+                "cognitive_attribution": {"root_causes": []},
+                "weak_points": [],
+                "diagnosis_summary": reason,
+                "recommended_actions": [],
+                "knowledge_graph": {"nodes": [], "edges": []},
+                "diagnosis_source": "kt_unavailable",
+                "kt_metrics": {},
+                "kt_model_info": {},
+            },
+            "usage": {},
+            "latency_ms": 0,
+            "kt_integrated": False,
+        }
 
     async def _run_kt_diagnosis(
         self,
@@ -86,29 +133,42 @@ class CognitiveDiagnosisAgent(BaseAgent):
         LLM 输出的同名字段会被强制覆盖。LLM 仅在 cognitive_attribution / summary 等
         自然语言字段上有创作权。
         """
-        # 把 KT 数据塞进 input,prompt 模板未来可读取以引导 LLM 只做归因
+        from app.services.kt_integration import build_kt_prompt_context
+
+        # Runtime 保留完整事实；Prompt 只消费有界投影，避免重复传输数百条状态。
         enriched_input = dict(input_data)
-        enriched_input["kt_predictions"] = kt_result["knowledge_states"]
-        enriched_input["kt_mastery_rates"] = kt_result["mastery_rates"]
-        enriched_input["kt_weak_points"] = kt_result["weak_points"]
+        enriched_input.pop("kt_predictions", None)
+        enriched_input.pop("kt_mastery_rates", None)
+        enriched_input.pop("kt_weak_points", None)
+        enriched_input["kt_context"] = build_kt_prompt_context(kt_result)
 
-        # 走父类完整流程:enrich → render → LLM → validate → log → post_process
-        base_result = await super().execute(enriched_input, context)
+        execution_context = {**context, "_kt_result": kt_result}
+        base_result = await super().execute(enriched_input, execution_context)
+        base_result["kt_integrated"] = True
+        return base_result
 
-        # 强制覆盖:KT 是 ground truth,LLM 不能改写数值
-        output = dict(base_result.get("output") or {})
+    async def finalize_output(
+        self,
+        output: dict,
+        input_data: dict,
+        context: dict,
+    ) -> dict:
+        """Reapply KT ground truth before logging and profile persistence."""
+        kt_result = context.get("_kt_result")
+        if not isinstance(kt_result, dict):
+            return output
+
+        output = dict(output)
         output["knowledge_states"] = kt_result["knowledge_states"]
         output["mastery_rates"] = kt_result["mastery_rates"]
         output["weak_points"] = kt_result["weak_points"]
         output["diagnosis_source"] = "kt_rekt"
         output["kt_metrics"] = kt_result.get("metrics", {})
         output["kt_model_info"] = kt_result.get("model_info", {})
+        output["kt_student_id"] = context.get("kt_student_id")
         if kt_result.get("llm_analysis"):
             output["kt_llm_analysis"] = kt_result["llm_analysis"]
-
-        base_result["output"] = output
-        base_result["kt_integrated"] = True
-        return base_result
+        return output
 
     async def post_process(self, output: dict, context: dict) -> None:
         """Update user profile with diagnosis results."""
@@ -131,15 +191,7 @@ class CognitiveDiagnosisAgent(BaseAgent):
                 existing = profile.knowledge_graph or {}
                 for ks in knowledge_states:
                     skill_id = ks.get("skill_id") or ks.get("skill_name", "")
-                    mastery = ks.get("mastery_percent", "0%")
-                    if isinstance(mastery, str):
-                        try:
-                            prob = int(mastery.replace("%", "")) / 100.0
-                        except ValueError:
-                            prob = 0.0
-                    else:
-                        prob = float(mastery) if mastery else 0.0
-                    existing[skill_id] = prob
+                    existing[skill_id] = self._mastery_probability(ks)
                 profile.knowledge_graph = existing
 
             # Persist structured knowledge graph from diagnosis output

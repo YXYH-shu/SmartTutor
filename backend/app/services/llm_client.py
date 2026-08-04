@@ -91,6 +91,7 @@ class LLMClient:
 
         last_exc: Exception | None = None
         used_json_mode = json_mode  # track whether we already tried without it
+        retried_without_thinking = False
 
         for attempt in range(1, settings.llm.max_retries + 1):
             t0 = time.perf_counter()
@@ -110,15 +111,31 @@ class LLMClient:
             msg = resp.choices[0].message
             raw_text = msg.content or ""
 
-            # Reasoning models (glm-5, DeepSeek-R1, etc.) may put output in
-            # reasoning_content while leaving content empty.  Try that field.
+            # Reasoning models may spend the whole budget in reasoning_content.
+            # Natural-language reasoning is not a valid JSON response: retry once
+            # with Thinking explicitly disabled instead of sending it to json.loads.
             if not raw_text.strip():
+                reasoning_text = ""
                 for attr in ("reasoning_content", "reasoning"):
                     candidate = getattr(msg, attr, None)
                     if candidate and isinstance(candidate, str) and candidate.strip():
-                        logger.info("LLM content empty, using %s (%d chars)", attr, len(candidate))
-                        raw_text = candidate
+                        reasoning_text = candidate
                         break
+                if reasoning_text and json_mode and not retried_without_thinking:
+                    logger.warning(
+                        "LLM JSON content empty with reasoning (%d chars) – "
+                        "retrying with Thinking disabled",
+                        len(reasoning_text),
+                    )
+                    kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+                    retried_without_thinking = True
+                    continue
+                if reasoning_text and not json_mode:
+                    logger.info(
+                        "LLM content empty, using reasoning content (%d chars)",
+                        len(reasoning_text),
+                    )
+                    raw_text = reasoning_text
 
             # Still empty — if using response_format, retry WITHOUT it once.
             # Some models don't support json_object mode and return blank content.

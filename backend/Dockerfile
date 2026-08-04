@@ -7,17 +7,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # System deps for mysqlclient / aiomysql
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc default-libmysqlclient-dev pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY backend/ .
+COPY services/kt-runtime-skill /app/services/kt-runtime-skill
+COPY services/lpp-skill /app/services/lpp-skill
 
 EXPOSE 8000
 

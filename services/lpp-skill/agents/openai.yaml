@@ -1,0 +1,4 @@
+interface:
+  display_name: "学习路径规划"
+  short_description: "为教师生成可解释、可执行的固定五题学习路径规划与结构化输出"
+  default_prompt: "使用 $lpp-skill 根据学生与目标题生成教师端学习路径规划。"

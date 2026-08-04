@@ -245,8 +245,8 @@ Stage 5 问题转化 ─── 语义锚定 + 操作剥离 + 引导嵌入(仅 TR
 
 | 模式 | 行为 | 适用场景 |
 |------|------|----------|
-| `off` (默认) | `cognitive_diagnosis` 走纯 LLM 模拟,数值由 LLM 生成 | 快速演示、不需要真实诊断 |
-| `integrated` | `cognitive_diagnosis` **先调用 kt-runtime-skill 拿真实掌握度**,LLM 仅做归因 | **生产环境推荐**,数值不幻觉 |
+| `off` | `cognitive_diagnosis` 走纯 LLM 模拟,数值由 LLM 生成 | 快速演示、不需要真实诊断 |
+| `integrated` (默认) | `cognitive_diagnosis` **先调用 kt-runtime-skill 拿真实掌握度**,LLM 仅做归因 | **生产环境推荐**,数值不幻觉 |
 | `standalone` | KT 走独立服务(`services/chat-agent` + 前端 iframe),`cognitive_diagnosis` 行为同 `off` | 走 PR #1 原方案,体验分离的 ChatAgent |
 
 ### integrated 模式工作原理
@@ -254,7 +254,7 @@ Stage 5 问题转化 ─── 语义锚定 + 操作剥离 + 引导嵌入(仅 TR
 ```
 学生发消息 → cognitive_diagnosis.execute()
                 ↓
-        检测到 input.student_id
+        解析学生编号（显式输入 → 用户画像 → 默认 43）
                 ↓
         app.services.kt_integration.run_kt_for_student()
                 ↓
@@ -270,6 +270,11 @@ Stage 5 问题转化 ─── 语义锚定 + 操作剥离 + 引导嵌入(仅 TR
                 ↓
         LLM 仅产出 cognitive_attribution(认知归因文案)
 ```
+
+学习路径 Agent 使用同一学生编号调用 `services/lpp-skill`，把 Runtime 返回的固定
+P1～P5 推荐题映射到原项目预定义的 `learning_path` 字段，同时提供前端兼容别名
+`stages`。LLM 只补充 `planning_rationale`、`adaptive_rules` 等解释字段，不能改写
+题目、题序和知识点事实。右侧执行面板会展示这两个 Agent 的完整结构化输出。
 
 ### KT 输出 schema 映射
 
@@ -584,7 +589,8 @@ uvicorn app.main:app --reload --port 8000
 
 前端**不需要改**(`VITE_KT_STANDALONE=false` 保持默认),KT 在主对话流里直接执行,不显示 iframe 入口。
 
-调用时需要传 `student_id`(目前 KT 数据集内有效范围 1-1000,实测用 40):
+当前集成验证阶段默认使用内置数据集学生 `43`，因此可以不传 `student_id`；如果
+显式传入数字学生编号，则以显式值为准：
 
 ```http
 POST /api/v1/chat/stream
@@ -593,8 +599,7 @@ Content-Type: application/json
 
 {
   "conversation_id": "<conv_id>",
-  "content": "诊断我的电路知识掌握情况",
-  "student_id": "40"
+  "content": "诊断我的电路知识掌握情况"
 }
 ```
 
@@ -605,7 +610,7 @@ from app.services.agents.cognitive_diagnosis import CognitiveDiagnosisAgent
 
 agent = CognitiveDiagnosisAgent()
 result = await agent.execute(
-    input_data={"student_id": "40", "current_message": "诊断学情"},
+    input_data={"current_message": "诊断学情"},
     context={"conversation_id": "test"}
 )
 # result["output"]["diagnosis_source"] == "kt_rekt"

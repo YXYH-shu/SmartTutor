@@ -5,7 +5,7 @@ llm_config:
   model: "glm-5.2"
   base_url: "https://www.dmxapi.cn/v1"
   temperature: 0.3
-  max_tokens: 4028
+  max_tokens: 16384
   timeout: 180
   max_retries: 3
   thinking: true
@@ -109,6 +109,14 @@ prompt_template: |
   ### 已抽取知识点集合（可为空）
   {{existing_knowledge_points | default([]) | tojson}}
 
+  ### KT Runtime 紧凑上下文（集成模式）
+  {{kt_context | default({}) | tojson}}
+
+  若上述 KT Runtime 上下文非空，它是完整 Runtime 结果的有界摘要。知识点身份、
+  掌握度和状态均为不可改写事实。你只负责生成主题分析、认知归因、诊断总结、
+  教学建议和知识关系；`knowledge_states`、`mastery_rates` 和 `weak_points` 请分别
+  返回空数组、空对象和空数组，系统会在模型返回后用完整 Runtime 事实覆盖这些字段。
+
   ## 六、诊断要求
 
   1. 参照 Knowledge Tracing 模型的输出格式，为每个相关知识点生成 mastery_percent（0%~100%）和 mastery_label（极低/较低/中等/较好/良好）
@@ -205,6 +213,9 @@ output_schema:
           priority: {type: string, enum: ["高", "中", "低"]}
           safety_ethic_assessment: {type: string, description: "仅高风险问题时出现，安全意识与伦理意识评估"}
         required: ["skill_id", "skill_name", "type", "mastery_percent", "mastery_label"]
+    mastery_rates:
+      type: object
+      description: "KT Runtime 的 skill_id → 0..1 掌握度映射"
     cognitive_attribution:
       type: object
       properties:
@@ -221,7 +232,20 @@ output_schema:
       required: ["root_causes"]
     weak_points:
       type: array
-      items: {type: string}
+      items:
+        oneOf:
+          - {type: string}
+          - type: object
+            properties:
+              skill_id: {type: string}
+              skill_name: {type: string}
+              type: {type: string, enum: ["概念", "规律", "方法", "价值"]}
+              mastery_percent: {type: string}
+              mastery_rate: {type: number, minimum: 0, maximum: 1}
+              mastery_label: {type: string, enum: ["极低", "较低", "中等", "较好", "良好"]}
+              status: {type: string, enum: ["mastered", "developing", "weak"]}
+              evidence: {type: string}
+            required: ["skill_id", "skill_name"]
     diagnosis_summary:
       type: string
     recommended_actions:
@@ -249,6 +273,11 @@ output_schema:
               relation: {type: string}
             required: ["source", "target", "relation"]
       required: ["nodes", "edges"]
+    diagnosis_source:
+      type: string
+      enum: ["llm_simulated", "kt_rekt", "kt_unavailable"]
+    kt_metrics: {type: object}
+    kt_model_info: {type: object}
   required: ["topic_analysis", "knowledge_states", "cognitive_attribution", "weak_points", "diagnosis_summary", "recommended_actions", "knowledge_graph"]
 
 input_schema:
@@ -267,4 +296,5 @@ input_schema:
     knowledge_graph: {type: object}
     existing_mastery: {type: object}
     existing_knowledge_points: {type: array}
+    kt_context: {type: object}
   required: ["recent_messages"]

@@ -132,7 +132,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Brain',
     color: 'violet',
-    llmConfig: { model: 'glm-5.2', temperature: 0.3, maxTokens: 4096, timeout: 120, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.3, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '知识点提取', description: '从对话中识别学生涉及的知识点(15-25 个)' },
@@ -176,7 +176,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Route',
     color: 'gold',
-    llmConfig: { model: 'glm-5.2', temperature: 0.3, maxTokens: 4096, timeout: 120, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.5, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '诊断解读', description: '基于 cognitive_diagnosis 输出的 mastery_rates 和 knowledge_graph' },
@@ -201,8 +201,11 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
       type: 'object',
       properties: {
         planning_rationale: { type: 'string' },
+        learning_path: { type: 'array', description: '后端原生 5 阶段路径' },
         stages: { type: 'array', description: '3-5 个学习阶段' },
-        adaptive_rules: { type: 'object' },
+        recommended_questions: { type: 'array', description: 'LPP Runtime 固定 P1-P5 推荐题' },
+        adaptive_rules: { type: 'string' },
+        total_estimated_time: { type: 'string' },
         estimated_completion: { type: 'string' },
       },
     },
@@ -400,7 +403,7 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       key: 'diagnosis_source',
       label: '数据来源',
       format: (v: unknown) =>
-        v === 'kt_reekt'
+        v === 'kt_rekt'
           ? '真实KT模型'
           : typeof v === 'string'
             ? v
@@ -434,6 +437,18 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
     },
   ],
   learning_path: [
+    {
+      key: 'recommended_questions',
+      label: '推荐序列',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const ids = v.slice(0, 5).map((item: any, index: number) => {
+          const questionId = typeof item === 'object' && item !== null ? item.question_id : undefined;
+          return `P${index + 1}${questionId !== undefined ? `(#${questionId})` : ''}`;
+        });
+        return ids.length > 0 ? ids.join(' → ') : '-';
+      },
+    },
     {
       key: 'stages',
       label: '学习阶段',

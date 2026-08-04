@@ -12,7 +12,12 @@ agent。集成模式(integrated)下,cognitive_diagnosis 会优先调用本模块
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import os
+import re
+import signal
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +29,69 @@ logger = logging.getLogger(__name__)
 _KT_PATH_INITIALIZED = False
 
 
+def _kt_skill_root() -> Path:
+    skill_path = Path(settings.kt.skill_path)
+    if not skill_path.is_absolute():
+        repo_root = Path(__file__).resolve().parents[3]
+        skill_path = repo_root / skill_path
+    entrypoint = skill_path / "scripts" / "run_kt.py"
+    if not entrypoint.exists():
+        raise RuntimeError(
+            f"KT Skill entrypoint not found: {entrypoint}. "
+            "Check SMART_TUTOR_KT__SKILL_PATH setting."
+        )
+    return skill_path.resolve()
+
+
+def _numeric_student_id(value: Any) -> str | None:
+    """Return a dataset student ID and ignore SmartTutor UUID values."""
+    if isinstance(value, bool) or value is None:
+        return None
+    text = str(value).strip()
+    return text if text.isdigit() else None
+
+
+def resolve_kt_student_id(
+    input_data: dict[str, Any],
+    context: dict[str, Any] | None = None,
+) -> str | None:
+    """Resolve REKT/LPP student ID without treating the app UUID as a dataset ID."""
+    context = context or {}
+
+    for value in (
+        input_data.get("kt_student_id"),
+        input_data.get("student_id"),
+        context.get("kt_student_id"),
+        context.get("student_id"),
+    ):
+        resolved = _numeric_student_id(value)
+        if resolved:
+            return resolved
+
+    current_message = str(
+        input_data.get("current_message")
+        or input_data.get("message")
+        or ""
+    )
+    match = re.search(
+        r"(?:学生|student)\s*#?\s*(\d+)",
+        current_message,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1)
+
+    profile = input_data.get("user_profile") or context.get("user_profile") or {}
+    if isinstance(profile, dict):
+        preferences = profile.get("preferences") or {}
+        if isinstance(preferences, dict):
+            resolved = _numeric_student_id(preferences.get("kt_student_id"))
+            if resolved:
+                return resolved
+
+    return _numeric_student_id(settings.kt.demo_student_id)
+
+
 def _ensure_kt_path() -> None:
     """把 services/kt-runtime-skill/scripts 加到 sys.path,使 kt_runtime 可被 import。"""
     global _KT_PATH_INITIALIZED
@@ -31,17 +99,8 @@ def _ensure_kt_path() -> None:
         return
 
     # settings.kt.skill_path 是相对于仓库根目录或绝对路径
-    skill_path = Path(settings.kt.skill_path)
-    if not skill_path.is_absolute():
-        # backend/app/services/ → 上溯 4 层到仓库根
-        repo_root = Path(__file__).resolve().parents[3]
-        skill_path = repo_root / skill_path
+    skill_path = _kt_skill_root()
     scripts_dir = skill_path / "scripts"
-    if not scripts_dir.exists():
-        raise RuntimeError(
-            f"KT skill scripts directory not found: {scripts_dir}. "
-            f"Check SMART_TUTOR_KT__SKILL_PATH setting."
-        )
     abs_path = str(scripts_dir.resolve())
     if abs_path not in sys.path:
         sys.path.insert(0, abs_path)
@@ -86,20 +145,28 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
         else:
             status = "weak"
 
-        extras = target.get("extras", {}) or {}
+        extras = {
+            **(pred.get("extras", {}) or {}),
+            **(target.get("extras", {}) or {}),
+        }
         skill_name = (
             extras.get("knowledge_point_name")
             or extras.get("kp_desc")
             or extras.get("name")
             or f"KP{skill_id}"
         )
+        skill_type = extras.get("knowledge_point_type") or extras.get("type")
+        if skill_type not in {"概念", "规律", "方法", "价值"}:
+            skill_type = "概念"
 
         ks = {
             "skill_id": skill_id,
             "skill_name": skill_name,
+            "type": skill_type,
             "mastery_percent": f"{mastery_pct}%",
             "mastery_rate": prob_float,
             "status": status,
+            "mastery_label": _mastery_label(prob_float),
             "evidence": extras.get("evidence", "REKT 模型预测"),
         }
         knowledge_states.append(ks)
@@ -116,6 +183,123 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
         "llm_analysis": raw.get("llm_analysis"),
         "diagnosis_source": "kt_rekt",
     }
+
+
+def _mastery_label(probability: float) -> str:
+    if probability < 0.2:
+        return "极低"
+    if probability < 0.4:
+        return "较低"
+    if probability < 0.6:
+        return "中等"
+    if probability < 0.8:
+        return "较好"
+    return "良好"
+
+
+_KT_PROMPT_STATE_FIELDS = (
+    "skill_id",
+    "skill_name",
+    "type",
+    "mastery_percent",
+    "mastery_rate",
+    "mastery_label",
+    "status",
+    "evidence",
+)
+
+
+def _prompt_mastery_rate(state: dict[str, Any]) -> float:
+    try:
+        return float(state.get("mastery_rate", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def build_kt_prompt_context(kt_result: dict[str, Any]) -> dict[str, Any]:
+    """Project complete KT facts to the bounded subset needed for LLM attribution."""
+    states = [
+        state
+        for state in (kt_result.get("knowledge_states") or [])
+        if isinstance(state, dict)
+    ]
+    grouped = {
+        status: [state for state in states if state.get("status") == status]
+        for status in ("weak", "developing", "mastered")
+    }
+    grouped["weak"].sort(key=_prompt_mastery_rate)
+    grouped["developing"].sort(key=_prompt_mastery_rate)
+    grouped["mastered"].sort(key=_prompt_mastery_rate, reverse=True)
+
+    selected: list[dict[str, Any]] = []
+    seen_skill_ids: set[str] = set()
+    for status, limit in (("weak", 10), ("developing", 5), ("mastered", 3)):
+        for state in grouped[status]:
+            skill_id = str(state.get("skill_id") or state.get("skill_name") or "")
+            if not skill_id or skill_id in seen_skill_ids:
+                continue
+            seen_skill_ids.add(skill_id)
+            selected.append(
+                {
+                    field: state[field]
+                    for field in _KT_PROMPT_STATE_FIELDS
+                    if field in state
+                }
+            )
+            if sum(item.get("status") == status for item in selected) >= limit:
+                break
+
+    return {
+        "total_count": len(states),
+        "weak_count": len(grouped["weak"]),
+        "developing_count": len(grouped["developing"]),
+        "mastered_count": len(grouped["mastered"]),
+        "priority_states": selected,
+    }
+
+
+async def _run_kt_command(arguments: list[str]) -> dict[str, Any]:
+    """Run the KT CLI without blocking the event loop and enforce its timeout."""
+    skill_root = _kt_skill_root()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(skill_root / "scripts" / "run_kt.py"),
+        *arguments,
+        cwd=str(skill_root),
+        env=os.environ.copy(),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=settings.kt.timeout_seconds,
+        )
+    except TimeoutError:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        await process.wait()
+        raise RuntimeError(
+            f"KT Skill timed out after {settings.kt.timeout_seconds} seconds"
+        )
+
+    raw_json = stdout.decode("utf-8", errors="replace").strip()
+    stderr_text = stderr.decode("utf-8", errors="replace").strip()
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"KT Skill returned invalid JSON: {stderr_text or raw_json[-1000:]}"
+        ) from exc
+    if process.returncode != 0 or data.get("status") != "ok":
+        raise RuntimeError(
+            f"KT Skill exited with code {process.returncode}: "
+            f"{data.get('message') or stderr_text}"
+        )
+    return data
 
 
 async def run_kt_for_student(
@@ -139,19 +323,24 @@ async def run_kt_for_student(
         标准化的诊断 dict;KT 调用失败时返回 None,调用方应降级到纯 LLM
     """
     try:
-        _ensure_kt_path()
-        from kt_runtime.api import predict_from_student_id
+        arguments = [
+            "--student-id",
+            str(student_id),
+            "--device",
+            settings.kt.device,
+            "--disable-analysis-report",
+        ]
+        raw_targets = targets or settings.kt.default_targets
+        if raw_targets:
+            arguments.extend(["--targets", str(raw_targets)])
+        if history_limit is not None:
+            arguments.extend(["--history-limit", str(history_limit)])
+        if initial_query:
+            arguments.extend(["--initial-query", str(initial_query)])
+        if history_context:
+            arguments.extend(["--history-context", str(history_context)])
 
-        raw_targets = targets or settings.kt.default_targets or None
-        response = predict_from_student_id(
-            student_id=str(student_id),
-            raw_targets=raw_targets,
-            device=settings.kt.device,
-            history_limit=history_limit,
-            initial_query=initial_query,
-            history_context=history_context,
-        )
-        data = response.to_dict() if hasattr(response, "to_dict") else response
+        data = await _run_kt_command(arguments)
         normalized = _normalize_kt_output(data)
         logger.info(
             "KT diagnosis succeeded for student=%s: %d kps (%d weak)",

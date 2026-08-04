@@ -65,21 +65,34 @@ class KTSettings(BaseSettings):
     """KT (知识追踪) 集成设置。
 
     mode:
-      - "off" (默认): cognitive_diagnosis 走纯 LLM 模拟,不调用 KT
-      - "integrated": cognitive_diagnosis 调用本地 kt-runtime-skill 拿真实掌握度,
-                       LLM 仅做认知归因
+      - "off": cognitive_diagnosis 走纯 LLM 模拟,不调用 KT
+      - "integrated" (默认): cognitive_diagnosis 调用本地 kt-runtime-skill
+                              拿真实掌握度,LLM 仅做认知归因
       - "standalone": KT 走 PR #1 原方案 — services/chat-agent 独立服务 + 前端 iframe
                        (此模式下 cognitive_diagnosis 行为同 off)
     """
-    mode: Literal["off", "integrated", "standalone"] = "off"
+    mode: Literal["off", "integrated", "standalone"] = "integrated"
     # kt-runtime-skill 路径,相对于仓库根目录或绝对路径
     skill_path: str = "services/kt-runtime-skill"
     # KT 模型运行设备(cuda:0 / cpu)
     device: str = "cuda:0"
     # 默认预测目标 kp_id 列表,逗号分隔(留空则使用 kt config 默认全部)
     default_targets: str = ""
+    # 集成验证阶段默认读取内置数据集中的学生 43。
+    demo_student_id: str = "43"
+    timeout_seconds: int = 180
     # KT 失败时是否降级到纯 LLM
-    fallback_to_llm: bool = True
+    fallback_to_llm: bool = False
+
+
+class LPPSettings(BaseSettings):
+    """本地 lpp-skill 的原生集成设置。"""
+
+    enabled: bool = True
+    skill_path: str = "services/lpp-skill"
+    timeout_seconds: int = 600
+    history_length: int = 10
+    seed: int = 42
 
 
 class ResourceRankingSettings(BaseSettings):
@@ -122,6 +135,7 @@ class Settings(BaseSettings):
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     trace: TraceSettings = Field(default_factory=TraceSettings)
     kt: KTSettings = Field(default_factory=KTSettings)
+    lpp: LPPSettings = Field(default_factory=LPPSettings)
     resource_ranking: ResourceRankingSettings = Field(default_factory=ResourceRankingSettings)
 
 

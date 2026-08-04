@@ -58,11 +58,11 @@ SmartTutor 已有输入继续保留：
 
 适配层额外解析 KT Runtime 所需信息：
 
-- `student_id`：优先从用户本轮明确提供的学生编号读取，其次读取 `user_profile.preferences.kt_student_id`。
+- `student_id`：优先从用户本轮明确提供的学生编号读取，其次读取 `user_profile.preferences.kt_student_id`，当前集成验证阶段缺失时使用配置默认值 `43`。
 - `targets`：可选知识点目标。
 - `history_context`：可选补充学习历史。
 
-找不到合法 REKT 学生编号时返回明确的不可用结果，不使用 SmartTutor 用户 UUID 兜底。
+不使用 SmartTutor 用户 UUID 作为 REKT 学生编号。当前集成验证阶段统一以数据集学生 `43` 作为最终兜底；该值通过配置暴露，后续接入正式身份映射时可以关闭或替换。
 
 ### 输出
 
@@ -207,7 +207,7 @@ learning_path output
 
 ## 错误处理
 
-- 学生编号缺失：返回明确提示和空的兼容结构，不生成模拟掌握度或模拟推荐题。
+- 学生编号按“显式输入 → 用户画像映射 → 配置默认值 43”解析；三者均不可用时才返回明确提示和空的兼容结构。
 - KT Runtime 失败：返回不可用状态；LLM 可以解释失败原因，但不得生成模拟掌握度。
 - LPP Runtime 失败：返回 `lpp_source = "lpp_unavailable"` 和空路径/空推荐题，不让 LLM伪造五题。
 - Runtime 返回非五题、顺序非 P1～P5 或缺少题干时，视为无效结果。
@@ -225,5 +225,80 @@ learning_path output
 - LPP 输出同时包含 `learning_path` 和 `stages`，内容一致。
 - `recommended_questions` 恰好五项且顺序为 P1～P5。
 - LLM 返回篡改题目时，最终结果仍保持 Runtime 原题和顺序。
-- 学生编号缺失或 Runtime 失败时不生成模拟事实。
+- 学生编号解析结果默认可落到 `43`；Runtime 失败时不生成模拟事实。
 - 不修改预定义工作流结构。
+
+## Prompt 上下文压缩补充设计
+
+### 目标与边界
+
+KT 与 LPP Runtime 必须先按现有算法完整执行，压缩只发生在 Runtime 返回之后、
+调用 LLM 之前。不得修改 REKT 推理、预测目标、学生历史读取、LPP 目标题滑窗、
+遗传搜索、候选池、补齐策略或 P1～P5 顺序。
+
+### 认知诊断
+
+完整 KT 结果继续保存在执行上下文中，用于最终字段覆盖、数据库持久化、前端展示和
+后续程序逻辑。LLM Prompt 不再重复接收完整 `kt_predictions`、
+`kt_mastery_rates` 和 `kt_weak_points`，改为只接收一份 `kt_context`：
+
+- `total_count`、`weak_count`、`developing_count`、`mastered_count`；
+- 最弱 10 个知识点；
+- 中等掌握 5 个知识点；
+- 掌握较好 3 个知识点；
+- 每个知识点只保留身份、名称、类型、掌握度、状态和证据字段。
+
+选中知识点按 `skill_id` 去重，总数不超过 18。LLM 只负责主题分析、认知归因、
+诊断总结、教学建议和知识关系；Runtime 所有事实字段仍在 `finalize_output()` 中
+覆盖 LLM 输出。认知诊断模型的 `max_tokens` 固定为 `32768`。
+
+### 学习路径
+
+`LearningPathAgent` 先用完整诊断结果计算薄弱知识点优先级并运行现有 LPP Runtime。
+随后传给 LLM 的 `diagnosis_result` 替换为紧凑摘要，只包含诊断总结、教学建议、
+统计值和最多 10 个优先知识点。LPP Runtime 的固定五题仍完整传入 Prompt；最终
+P1～P5 事实继续由适配层覆盖，不改变算法输出。
+
+### 验证补充
+
+- 认知诊断 Prompt 中最多出现 18 个 KT 知识点，不包含三份完整重复数据。
+- 学习路径 Prompt 中最多出现 10 个诊断知识点。
+- 两个 Agent 的最终输出仍保留完整 Runtime 事实。
+- 学生 43 的 KT 预测数量和 LPP P1～P5 结果与压缩前一致。
+
+## 输出预算与 LPP Prompt 边界补充设计
+
+### 统一输出预算
+
+`cognitive_diagnosis` 与 `learning_path` 两个功能 Agent 的
+`max_tokens` 统一为 `16384`。安全、情感、决策、资源推荐、学伴推荐和最终回复类
+Agent 保持原有预算，避免无必要地增加延迟和调用成本。前端概览中的静态配置必须与
+后端两个功能 Agent 的真实配置一致。
+
+### LPP Prompt 严格白名单
+
+LPP Runtime 仍使用完整认知诊断计算知识点优先级并完整运行现有算法。算法完成后，
+传给解释模型的数据只能包含：
+
+- 最多 10 个最低掌握度知识点及诊断统计、总结和建议；
+- 当前水平、年级和学习风格，不包含用户画像中的完整 `weak_points`、
+  `knowledge_graph` 或 `preferences`；
+- 只保留与 P1～P5 知识点匹配的知识图谱节点和这些节点之间的边；
+- LPP 目标题、固定 P1～P5 题目以及每题的教学作用，不包含 Runtime diagnostics、
+  related questions 或完整知识序列。
+
+完整诊断与完整 LPP Runtime 继续保存在程序上下文中，分别供算法消费和
+`finalize_output()` 覆盖最终事实字段，Prompt 压缩不得改变 P1～P5。
+
+### Thinking 空输出处理
+
+JSON 模式下，如果模型 `content` 为空但存在 `reasoning_content`，不得把自然语言推理
+直接交给 JSON 解析器。客户端应显式关闭 Thinking 后重试一次；后续仍无 JSON content
+时按模型请求失败处理。非 JSON 模式继续允许使用 reasoning 作为文本结果。
+
+### 验证补充
+
+- 两个功能 Agent 的运行时输出预算均为 16384。
+- 渲染后的 LPP Prompt 不包含完整画像、Runtime diagnostics 和 related questions。
+- JSON 模式下 reasoning-only 响应会触发关闭 Thinking 的重试，并能消费第二次合法 JSON。
+- KT 仍输出 334 个状态，LPP 仍输出顺序固定的 P1～P5。

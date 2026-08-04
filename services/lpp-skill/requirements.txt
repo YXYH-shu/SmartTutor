@@ -1,0 +1,3 @@
+# 已在 conda 环境 `kt` 中验证过可用的版本（与 LPP/DSMOEA、kt-runtime-skill 一致）
+torch==2.4.0
+numpy==1.26.4
