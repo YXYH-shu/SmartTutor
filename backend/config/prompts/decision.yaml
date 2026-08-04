@@ -2,8 +2,8 @@ name: "decision"
 description: "智能教育系统决策中枢"
 version: "2.0"
 llm_config:
-  model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  model: "glm-5.2"
+  base_url: "https://www.dmxapi.cn/v1"
   temperature: 0.2
   max_tokens: 4028
   timeout: 180

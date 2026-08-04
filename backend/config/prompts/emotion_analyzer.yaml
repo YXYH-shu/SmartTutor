@@ -2,8 +2,8 @@ name: "emotion_analyzer"
 description: "情感分析与学习状态评估智能体"
 version: "1.0"
 llm_config:
-  model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  model: "deepseek-v4-flash-0731"
+  base_url: "https://www.dmxapi.cn/v1"
   temperature: 0.4
   max_tokens: 4028
   timeout: 60

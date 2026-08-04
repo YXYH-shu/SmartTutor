@@ -2,8 +2,8 @@ name: "cognitive_diagnosis"
 description: "认知诊断与知识掌握度评估智能体（LLM 模拟 Knowledge Tracing）"
 version: "3.0"
 llm_config:
-  model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  model: "glm-5.2"
+  base_url: "https://www.dmxapi.cn/v1"
   temperature: 0.3
   max_tokens: 4028
   timeout: 180

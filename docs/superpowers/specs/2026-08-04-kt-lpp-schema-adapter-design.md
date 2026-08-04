@@ -34,6 +34,13 @@
 
 安全检查每轮执行。情感分析在所有未被安全策略直接拦截的轮次执行；`TRANSFORM` 后对安全改写后的消息继续进行情感分析。该行为已经由现有 LangGraph 图保证，不做修改。
 
+## 模型配置
+
+- 安全五阶段、备用 `safety_monitor` 与 `emotion_analyzer` 使用 `deepseek-v4-flash-0731`。
+- 其余 Agent 和决策节点沿用 `feat/lpp-integration` 的 `glm-5.2`。
+- 所有 Agent 使用 DMX OpenAI 兼容地址 `https://www.dmxapi.cn/v1`，API Key 继续从全局环境变量读取。
+- 各 Agent 原有温度、token 上限、超时、重试和 thinking 配置保持不变。
+
 ## 认知诊断契约
 
 ### 输入
