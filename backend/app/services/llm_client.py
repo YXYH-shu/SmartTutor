@@ -45,6 +45,7 @@ class LLMClient:
         )
         self._default_model = model or settings.llm.model_name
         self._default_max_tokens = max_tokens if max_tokens is not None else settings.llm.max_tokens
+        self._max_retries = max_retries if max_retries is not None else settings.llm.max_retries
 
     # ------------------------------------------------------------------
     # Core completion
@@ -93,15 +94,31 @@ class LLMClient:
         used_json_mode = json_mode  # track whether we already tried without it
         retried_without_thinking = False
 
-        for attempt in range(1, settings.llm.max_retries + 1):
+        total_attempts = max(1, self._max_retries + 1)
+        for attempt in range(1, total_attempts + 1):
             t0 = time.perf_counter()
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except Exception as exc:
                 last_exc = exc
+                status_code = getattr(exc, "status_code", None)
+                if status_code in (401, 403):
+                    raise RuntimeError(
+                        "GLM 认证失败：API Key 无效或已过期，请更新 backend/.env"
+                    ) from exc
+                # Content filters commonly use HTTP 400.  Detect them before
+                # the generic request-error branch so the UI and logs do not
+                # incorrectly report a model/configuration problem.
                 if _is_content_filter_error(exc):
                     logger.warning("LLM content filter triggered (non-retryable): %s", exc)
-                    raise RuntimeError(f"LLM content filter blocked the request: {exc}") from exc
+                    raise RuntimeError("LLM 内容安全过滤已拦截本次请求") from exc
+                if status_code in (400, 404, 422):
+                    logger.error("LLM request rejected (HTTP %s): %s", status_code, exc)
+                    raise RuntimeError(
+                        f"LLM 服务拒绝了本次请求（HTTP {status_code}），请查看后端日志中的服务端错误码"
+                    ) from exc
+                if attempt >= total_attempts:
+                    break
                 wait = 2 ** attempt * 0.5
                 logger.warning("LLM request failed (attempt %d): %s – retry in %.1fs", attempt, exc, wait)
                 await asyncio.sleep(wait)
@@ -178,7 +195,7 @@ class LLMClient:
             return {"content": content, "usage": usage, "latency_ms": latency_ms}
 
         # All retries exhausted
-        raise RuntimeError(f"LLM request failed after {settings.llm.max_retries} attempts") from last_exc
+        raise RuntimeError(f"LLM request failed after {total_attempts} attempts") from last_exc
 
     # ------------------------------------------------------------------
     # JSON schema validation with auto-repair

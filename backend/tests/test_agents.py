@@ -66,10 +66,15 @@ class TestSafetyMonitor:
         from app.services.agents.safety_monitor import SafetyMonitorAgent
 
         expected = {
-            "is_safe": True,
-            "risk_level": "low",
-            "transformed_text": "今天想学习什么内容？",
-            "education_note": "",
+            "risk_detected": False,
+            "risk_category": "N",
+            "intent": "learning",
+            "confidence": 0.99,
+            "operational_request": False,
+            "repeat_probe": False,
+            "crisis_detected": False,
+            "teachable": False,
+            "risk_reason": "正常学习问题",
         }
         _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(expected))
         _patch_llm.validate_json_response = AsyncMock(return_value=expected)
@@ -80,18 +85,22 @@ class TestSafetyMonitor:
             context={"conversation_id": "conv-1"},
         )
         assert result["agent"] == "safety_monitor"
-        assert result["output"]["is_safe"] is True
-        assert result["output"]["risk_level"] == "low"
+        assert result["output"]["branch"] == "PASS"
 
     @pytest.mark.asyncio
     async def test_unsafe_content(self, _patch_llm):
         from app.services.agents.safety_monitor import SafetyMonitorAgent
 
         expected = {
-            "is_safe": False,
-            "risk_level": "high",
-            "transformed_text": "如果你遇到困难，可以寻求帮助。",
-            "education_note": "检测到潜在有害内容，已替换为教育引导语。",
+            "risk_detected": True,
+            "risk_category": "C",
+            "intent": "emotional",
+            "confidence": 0.99,
+            "operational_request": False,
+            "repeat_probe": False,
+            "crisis_detected": True,
+            "teachable": False,
+            "risk_reason": "检测到自伤危机信号",
         }
         _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(expected))
         _patch_llm.validate_json_response = AsyncMock(return_value=expected)
@@ -101,8 +110,9 @@ class TestSafetyMonitor:
             {"raw_text": "我不想活了", "user_age": 14},
             context={"conversation_id": "conv-2"},
         )
-        assert result["output"]["is_safe"] is False
-        assert result["output"]["risk_level"] == "high"
+        assert result["output"]["branch"] == "REJECT"
+        assert result["output"]["reject_type"] == "CRISIS"
+        assert "立即危险" in result["output"]["direct_response"]
 
 
 class TestEmotionAnalyzer:
@@ -1064,6 +1074,55 @@ class TestContentPolisher:
         assert len(result["output"]["changes_made"]) > 0
 
 
+class TestContentCorrector:
+    def test_prompt_treats_safety_as_constraint_not_unrelated_topic(self, _patch_llm):
+        from app.services.agents.content_corrector import ContentCorrectorAgent
+
+        agent = ContentCorrectorAgent(llm=_patch_llm)
+        prompt = agent._render_prompt(
+            {
+                "original_response": "可以先准备一张长方形纸。",
+                "student_question": "怎么制作小纸船？",
+                "subject": "劳动与技术",
+                "grade_level": "小学",
+                "conversation_stage": "teaching",
+                "safety_constraints": {"branch": "PASS"},
+            }
+        )
+
+        assert "当前轮明确提供的有效信息支持" in prompt
+        assert "不会自动改变当前问题的主题" in prompt
+
+    @pytest.mark.asyncio
+    async def test_audit_without_rewrite(self, _patch_llm):
+        from app.services.agents.content_corrector import ContentCorrectorAgent
+
+        original = "电流可能影响神经和肌肉活动，影响程度与电流路径和持续时间有关。"
+        expected = {
+            "action": "PASS",
+            "issues": [],
+            "patched_response": "",
+            "checks": {
+                "scientific_reliability": True,
+                "educational_completeness": True,
+                "structural_clarity": True,
+                "content_safety": True,
+            },
+        }
+        _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(expected))
+        _patch_llm.validate_json_response = AsyncMock(return_value=expected)
+
+        agent = ContentCorrectorAgent(llm=_patch_llm)
+        result = await agent.execute(
+            {"original_response": original, "student_question": "电流有什么影响？"},
+            context={"conversation_id": "conv-corrector"},
+        )
+
+        assert result["agent"] == "content_corrector"
+        assert result["output"]["action"] == "PASS"
+        assert result["output"]["patched_response"] == ""
+
+
 # ---------------------------------------------------------------------------
 # Registry tests
 # ---------------------------------------------------------------------------
@@ -1077,7 +1136,8 @@ class TestAgentRegistry:
         assert "safety_monitor" in names
         assert "emotion_analyzer" in names
         assert "cognitive_diagnosis" in names
-        assert len(agents) == 9  # 8 个教育智能体 + safety_monitor
+        assert "content_corrector" in names
+        assert len(agents) == 10  # 9 个教育智能体 + safety_monitor
 
     def test_get_agent(self):
         from app.services.agents import get_agent

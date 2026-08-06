@@ -42,6 +42,8 @@ export function ChatContainer({ onQuickAction }: Props) {
     startTurn,
     finalizeTurn,
     resetTurn,
+    pendingSafetyGuide,
+    clearPendingSafetyGuide,
   } = useChatStore();
   const { accessToken } = useAuthStore();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -170,6 +172,11 @@ export function ChatContainer({ onQuickAction }: Props) {
     );
   };
 
+  const handleGuideSelect = (option: string) => {
+    clearPendingSafetyGuide();
+    void handleSend(option);
+  };
+
   if (!currentConversationId) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-8 px-4 animate-fade-in-up">
@@ -269,6 +276,9 @@ export function ChatContainer({ onQuickAction }: Props) {
         onSend={handleSend}
         disabled={isLoading}
         placeholder="输入你的学习问题..."
+        guideOptions={pendingSafetyGuide?.options}
+        recommendedOption={pendingSafetyGuide?.recommendedOption}
+        onSelectGuide={handleGuideSelect}
       />
     </div>
   );

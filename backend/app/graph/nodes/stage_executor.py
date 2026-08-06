@@ -11,6 +11,7 @@ and is already available in ``ctx["emotion_analyzer"]`` when this node runs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -22,6 +23,18 @@ from app.services.agents import get_agent
 
 logger = logging.getLogger(__name__)
 
+_STAGE_TIMEOUT_SECONDS = 90.0
+_KNOWLEDGE_RESERVE_SECONDS = 35.0
+_AGENT_TIMEOUT_SECONDS = {
+    "cognitive_diagnosis": 40.0,
+    "resource_recommender": 12.0,
+    "learning_path": 20.0,
+    "study_buddy": 15.0,
+    "knowledge_responder": 35.0,
+    "content_polisher": 12.0,
+    "empathy_generator": 12.0,
+}
+
 _engine: DecisionEngine | None = None
 
 
@@ -30,6 +43,40 @@ def _get_engine() -> DecisionEngine:
     if _engine is None:
         _engine = DecisionEngine()
     return _engine
+
+
+def _messages_for_stage(state: TutorState) -> list[Any]:
+    """Return the LLM-visible message window for a teaching stage.
+
+    Once a GUIDE choice is confirmed, the safety agent has already replaced
+    the risky request with a safe learning question.  Only that latest safe
+    human message is passed downstream so provider filters do not re-evaluate
+    the original operational wording from earlier turns.
+    """
+    messages = list(state.get("messages", []))
+    safety_context = (
+        (state.get("context") or {}).get("safety_context")
+        or state.get("safety_context")
+        or {}
+    )
+    if safety_context.get("resolved_from_guide") is True:
+        for message in reversed(messages):
+            if getattr(message, "type", "") == "human":
+                return [message]
+        return []
+    return messages[-10:]
+
+
+def _guide_teaching_fallback(safety_context: dict[str, Any]) -> str:
+    """Keep a confirmed educational transition useful during LLM outages."""
+    selected = str(safety_context.get("selected_option") or "这个知识点").strip()
+    safe_query = str(safety_context.get("safe_query") or "").strip()
+    question_line = f"\n\n📘 我们要探究的问题是：{safe_query}" if safe_query else ""
+    return (
+        f"很好，我们就从“{selected}”开始。{question_line}\n\n"
+        "可以先抓住三个学习线索：现象是什么、背后的原理是什么，以及现实中应当如何安全判断和防护。"
+        "老师这边刚才连接模型时出现了短暂波动，你可以继续告诉我你的年级或最困惑的一点，我会接着为你讲解。🙂"
+    )
 
 
 async def stage_executor(state: TutorState) -> dict[str, Any]:
@@ -81,6 +128,9 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
 
     _step_queue = step_queue_var.get()
     _agent_labels: dict[str, str] = agent_labels_var.get() or {}
+    stage_deadline = asyncio.get_running_loop().time() + _STAGE_TIMEOUT_SECONDS
+    has_knowledge_responder = "knowledge_responder" in agent_names
+    knowledge_completed = False
 
     for name in agent_names:
         agent_label = _agent_labels.get(name, name)
@@ -99,10 +149,10 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         # KT 模型用 student_id 索引数据集,项目惯例用 user_id 兜底当 student_id
         input_data.setdefault("student_id", state.get("user_id", ""))
 
-        messages = state.get("messages", [])
+        messages = _messages_for_stage(state)
         input_data["message_history"] = [
             {"role": getattr(m, "type", "unknown"), "content": getattr(m, "content", "")}
-            for m in messages[-10:]
+            for m in messages
         ]
         # Also provide recent_messages alias for prompt templates that use it
         input_data["recent_messages"] = input_data["message_history"]
@@ -175,21 +225,84 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             input_data.setdefault("content", extracted)
             input_data.setdefault("raw_response", extracted)
 
-        result = await agent.execute(
-            input_data=input_data,
-            context={
-                "conversation_id": state.get("conversation_id", ""),
-                "user_id": state.get("user_id", ""),
-                "student_id": state.get("user_id", ""),
-                "turn_id": (state.get("context") or {}).get("turn_id"),
-            },
-        )
+        remaining = stage_deadline - asyncio.get_running_loop().time()
+        configured_timeout = _AGENT_TIMEOUT_SECONDS.get(name, 30.0)
+        if has_knowledge_responder and not knowledge_completed and name != "knowledge_responder":
+            # Non-response agents may not consume the time reserved for the
+            # user-facing knowledge response.
+            configured_timeout = min(
+                configured_timeout,
+                max(1.0, remaining - _KNOWLEDGE_RESERVE_SECONDS),
+            )
+        timeout_seconds = min(configured_timeout, max(0.0, remaining))
+
+        if timeout_seconds <= 0:
+            logger.warning("[stage_executor] stage deadline reached before agent %s", name)
+            ctx.setdefault("_agent_errors", {})[name] = {
+                "type": "stage_timeout",
+                "timeout_seconds": _STAGE_TIMEOUT_SECONDS,
+            }
+            break
+
+        try:
+            result = await asyncio.wait_for(
+                agent.execute(
+                    input_data=input_data,
+                    context={
+                        "conversation_id": state.get("conversation_id", ""),
+                        "user_id": state.get("user_id", ""),
+                        "student_id": state.get("user_id", ""),
+                        "turn_id": (state.get("context") or {}).get("turn_id"),
+                    },
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[stage_executor] agent %s timed out after %.1fs; continuing",
+                name,
+                timeout_seconds,
+            )
+            ctx.setdefault("_agent_errors", {})[name] = {
+                "type": "timeout",
+                "timeout_seconds": round(timeout_seconds, 1),
+            }
+            if _step_queue is not None:
+                await _step_queue.put({
+                    "type": "thinking",
+                    "content": _json.dumps(
+                        {"status": "timeout", "continued": True},
+                        ensure_ascii=False,
+                    ),
+                    "step": name,
+                    "label": f"{agent_label}超时，已跳过",
+                })
+            continue
+        except Exception as exc:
+            logger.exception("[stage_executor] agent %s failed; continuing", name)
+            ctx.setdefault("_agent_errors", {})[name] = {
+                "type": type(exc).__name__,
+                "continued": True,
+            }
+            if _step_queue is not None:
+                await _step_queue.put({
+                    "type": "thinking",
+                    "content": _json.dumps(
+                        {"status": "failed", "continued": True},
+                        ensure_ascii=False,
+                    ),
+                    "step": name,
+                    "label": f"{agent_label}失败，已跳过",
+                })
+            continue
 
         output = result["output"]
         ctx[name] = output
         ctx["_last_agent"] = name
         ctx["_last_output"] = output
         last_output = output
+        if name == "knowledge_responder":
+            knowledge_completed = True
 
         # Emit thinking event after agent completes
         if _step_queue is not None:
@@ -214,7 +327,19 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
         "stage_counter": state.get("stage_counter", 0) + 1,
     }
 
-    if stage_def.get("output_to_user", False) and last_output is not None:
+    safety_context = ctx.get("safety_context") or state.get("safety_context") or {}
+    if safety_context.get("resolved_from_guide") is True and not knowledge_completed:
+        # Do not expose a provider failure after the student has completed both
+        # GUIDE selections.  This fallback is educational, safe, and retryable
+        # on the student's next turn.
+        updates["final_response"] = _guide_teaching_fallback(safety_context)
+        updates["messages"] = [AIMessage(content=updates["final_response"])]
+
+    if (
+        "final_response" not in updates
+        and stage_def.get("output_to_user", False)
+        and last_output is not None
+    ):
         # Try to extract a text response from the output
         response_text = _extract_text(last_output)
         if response_text:
@@ -251,6 +376,7 @@ def _extract_text(output: dict[str, Any]) -> str | None:
         "transformed_text",
         "empathetic_response",
         "polished_content",
+        "corrected_content",
         "diagnosis_summary",
         "rationale",
         "estimated_completion",

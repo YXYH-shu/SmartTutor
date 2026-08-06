@@ -1,6 +1,6 @@
 ﻿# SmartTutor — 多智能体自适应教育系统
 
-SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 8 个核心教育智能体 + 1 个安全监测智能体,实现**认知诊断、情感分析、学习路径规划、资源推荐、学伴匹配、知识问答**等功能,配合 5 阶段安全管线保障学生使用安全。后端采用 FastAPI + SQLAlchemy 异步架构,前端为 React + TypeScript SPA。
+SmartTutor 是一个基于 LangGraph 的多智能体教育平台。当前分支在项目最新版本上保留原有 8 个教育智能体，并新增 **1 个内容矫正智能体 + 1 个安全监测智能体**，实现认知诊断、情感分析、学习路径规划、资源推荐、学伴匹配、知识问答、安全教育引导与教学回答质检。后端采用 FastAPI + SQLAlchemy 异步架构，前端为 React + TypeScript SPA。
 
 > **集成现状**:本分支 `integrate/both-prs` 已合并两个独立开发的 PR:
 > - **资源与学伴推荐**:`resource_recommender` 与 `study_buddy` 共用异构图推荐模型，分别提供资源/学伴的个性化排序与相似度排序
@@ -13,7 +13,8 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 - [系统设计概览](#系统设计概览)
 - [智能体详解](#智能体详解)
 - [图编排与流转机制](#图编排与流转机制)
-- [5 阶段安全管线](#5-阶段安全管线)
+- [安全监测与教育引导管线](#安全监测与教育引导管线)
+- [内容矫正智能体](#contentcorrectoragent--内容矫正)
 - [KT 知识追踪集成(课题 4.1)](#kt-知识追踪集成课题-41)
 - [资源与学伴图推荐](#资源与学伴图推荐)
 - [预定义 Workflow](#预定义-workflow)
@@ -72,7 +73,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 
 每轮对话的处理流程:
 
-1. **安全检测** — 5 阶段安全管线评估输入内容,危险内容拦截或转化
+1. **安全检测** — 安全监测智能体执行 PASS / GUIDE / REJECT 判定，风险内容进入教育引导或直接阻止
 2. **情感分析** — 自动识别学生情绪状态,结果供所有后续智能体参考
 3. **决策路由** — LLM 判断当前意图,路由到对应的 Workflow / Stage
 4. **智能体调度** — 按 Stage 定义顺序依次调用多个智能体,前一个的输出作为后一个的输入
@@ -82,7 +83,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 
 ## 智能体详解
 
-系统共有 **8 个核心教育智能体** + **1 个安全监测智能体**(安全管线内部使用)。所有智能体继承自统一的 `BaseAgent` 基类,遵循相同的处理管线:**YAML 配置加载 → Jinja2 模板渲染 → LLM 调用 → JSON 输出校验 → 执行日志持久化**。
+系统共有 **8 个原有教育智能体 + 1 个内容矫正智能体 + 1 个安全监测智能体**。智能体继承统一的 `BaseAgent` 基类，遵循相同的处理管线：**YAML 配置加载 → Jinja2 模板渲染 → LLM 调用 → JSON 输出校验 → 执行日志持久化**。
 
 ### 8 个核心教育智能体
 
@@ -146,7 +147,20 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 
 ### SafetyMonitorAgent — 安全监测
 
-- **职责**:评估内容风险等级(low/medium/high),作为 5 阶段安全管线的一部分,不直接参与 Stage 调度
+- **职责**：在每轮教学前执行独立安全判定，输出 `PASS / GUIDE / REJECT`。
+- **PASS**：原问题不改写，进入项目原有教育智能体链路。
+- **GUIDE**：调用教育转化 Skill，将风险操作请求整理成安全、适龄的学习任务；前端依次呈现“学科方向 → 具体知识点”两阶段选择。
+- **REJECT**：直接返回教师式安全拒绝或危机关怀，不再进入内容生成链路。
+- **性能**：420 条最终分批回归综合准确率 **99.29%（417/420）**；平均判定延迟按样本加权约 **9.49 秒**。测试口径见 [分支更新说明](BRANCH_INTEGRATION_README.md#22-性能与质量指标)。
+
+### ContentCorrectorAgent — 内容矫正
+
+- **位置**：教学内容生成完成后、回复组装前，作为最后一道质量门。
+- **职责**：检查事实准确性、结构清晰度、教师口吻、适龄性和内容安全。
+- **PASS**：逐字保留原回答，不做无意义改写。
+- **PATCH**：仅修复局部问题，保留原结构和有效内容。
+- **REGENERATE**：严重问题交回内容生成智能体重写，最多重写一次；达到上限后进入教师式安全兜底，防止循环。
+- **验证**：内容矫正定向测试 **9/9 通过**；完整后端回归 **117/117 通过**。
 
 ### 智能体间数据流
 
@@ -164,6 +178,10 @@ KnowledgeResponder   (合并 diagnosis + resource + buddy + plan)
 ContentPolisher ──→ polished_content
         ↓
 EmpathyGenerator ──→ empathetic_response (最终回复)
+        ↓
+ContentCorrector ──→ PASS / PATCH / REGENERATE
+        ↓
+ResponseAssembler ──→ 学生可见最终回复
 ```
 
 智能体间通过 `state["context"]` 字典传递数据。Stage 执行器在调用每个智能体前,会自动从 context 展平关键字段作为输入。前一个智能体的完整输出同时以自身名称存储在 context 中(如 `ctx["cognitive_diagnosis"]`),供后续智能体直接访问。
@@ -176,25 +194,30 @@ EmpathyGenerator ──→ empathetic_response (最终回复)
 
 ```
 START
-  → safety_check(5 阶段安全管线)
-      ├─ [HARD_BLOCK / SOFT_BLOCK / REFERRAL] → assemble_response → END
-      └─ [SAFE / TRANSFORM] → emotion_preprocess(情感分析,固定执行)
-          → decide(LLM 决策路由)
-              ├─ continue_stage → execute_stage → assemble_response → END
-              ├─ switch_stage   → execute_stage → assemble_response → END
-              ├─ free_composition → execute_agent ↻ → assemble_response → END
-              └─ finish → assemble_response → END
+  → safety_check(PASS / GUIDE / REJECT)
+      ├─ REJECT → assemble_response → END
+      ├─ GUIDE → 教育转化 Skill → 两阶段选择 → 教学链路
+      └─ PASS → emotion_preprocess → decide → 内容生成
+                                             ↓
+                                      content_correction
+                         ┌──────────────┼──────────────┐
+                       PASS           PATCH       REGENERATE(最多 1 次)
+                         └──────────────┴──────────────┘
+                                             ↓
+                                      assemble_response → END
 ```
 
 ### 节点说明
 
 | 节点 | 类型 | 说明 |
 |------|------|------|
-| `safety_gate` | 固定节点 | 运行 5 阶段安全管线,每轮自动执行 |
+| `safety_gate` | 固定节点 | 运行 PASS / GUIDE / REJECT 安全监测，每轮自动执行 |
 | `emotion_preprocess` | 固定节点 | 运行情感分析,每轮自动执行 |
 | `decide` | 决策节点 | LLM 决策中枢,识别意图并路由到对应 Workflow/Stage |
 | `execute_stage` | 执行节点 | 按 `workflows.yaml` 定义的智能体序列顺序执行 |
 | `execute_agent` | 执行节点 | free_composition 模式下逐个执行自定义智能体序列 |
+| `content_correction` | 质量节点 | 对教学回答执行 PASS / PATCH / REGENERATE 检查 |
+| `content_regeneration` | 受限回路 | 严重问题最多回到内容生成智能体重写一次 |
 | `assemble_response` | 终端节点 | 组装最终回复(仅在 `final_response` 为空时回退调用 empathy_generator) |
 
 ### Workflow 自动流转
@@ -205,36 +228,30 @@ START
 
 ---
 
-## 5 阶段安全管线
+## 安全监测与教育引导管线
 
-安全管线由 `SafetyPipeline` 类实现,使用 5 个独立的 YAML 提示词配置。在每轮对话开始时自动运行。
+新管线采用大模型为主、确定性规则和教师式模板为兜底的原始策略，不绑定单一基座模型。安全智能体只负责作出 `PASS / GUIDE / REJECT` 决策；其中 `GUIDE` 再调用独立的 `safety-education-guidance` Skill。
 
-```
-Stage 1 风险感知 ─── 未检测到风险 → SAFE(放行)
-        │
-        检测到风险 → 分类为 A/B/C/D1/D2/D3
-        │
-        ├── C 类(心理危机信号)→ REFERRAL(直接关怀,短路)
-        │
-Stage 2 意图识别 ─── 科学好奇 / 情绪表达 / 边界试探 / 明确恶意
-        │
-Stage 3 价值评估 ─── 决定动作:TRANSFORM / SOFT_BLOCK / HARD_BLOCK / REFERRAL
-        │
-        ├── SOFT_BLOCK / HARD_BLOCK → 短路到回复组装
-        │
-Stage 4 教育引导 ─── 主题映射 + 核心概念 + 学段适配(仅 TRANSFORM)
-        │
-Stage 5 问题转化 ─── 语义锚定 + 操作剥离 + 引导嵌入(仅 TRANSFORM)
-        │
-        → 改写后的教育性内容替代原始输入,继续正常流转
+```text
+学生问题
+  ↓
+SafetyMonitorAgent
+  ├─ PASS   → 不改变原意，进入原教育智能体链路
+  ├─ REJECT → 教师式拒绝 / 危机关怀 → 结束
+  └─ GUIDE  → 安全教育转化 Skill
+                 ↓
+          学科方向选择（第 1 阶段）
+                 ↓
+          具体知识点选择（第 2 阶段）
+                 ↓
+          只把安全问题交给教学链路
 ```
 
-| 风险类别 | 说明 | 默认处置 |
-|----------|------|----------|
-| A | 危险操作(爆炸物、自伤工具等) | TRANSFORM → 教育引导 |
-| B | 学段不当内容 | TRANSFORM → 适龄化改写 |
-| C | 心理危机信号 | REFERRAL → 直接关怀 |
-| D1/D2/D3 | 伦理敏感(偏见、隐私、深度伪造) | TRANSFORM → 伦理教育 |
+关键约束：原始危险请求不会在 GUIDE 选择完成后重新传入内容生成智能体；模型不可用、输出无法解析或内容过滤触发时，系统返回适龄、教师口吻的兜底回复，不出现空白回答。
+
+![安全监测教育引导与学科选择](文档/分支更新截图/01-安全监测-教育引导与学科选择.png)
+
+详细性能指标、修改文件清单和完整界面证据见 [BRANCH_INTEGRATION_README.md](BRANCH_INTEGRATION_README.md)。
 
 ---
 
@@ -520,22 +537,24 @@ SmartTutor/
 │   │   ├── api/v1/                   # REST API(auth/users/conversations/chat)
 │   │   ├── graph/                    # LangGraph 编排引擎
 │   │   │   ├── state.py / decision_engine.py / builder.py / engine.py
-│   │   │   └── nodes/                # 6 个图节点实现
+│   │   │   └── nodes/                # 图节点实现（含安全、内容矫正与单次重写）
 │   │   ├── middleware/               # 错误处理、日志、限流
 │   │   ├── models/                   # ORM 模型(19 个)
 │   │   ├── schemas/                  # Pydantic 请求/响应 Schema
 │   │   └── services/
 │   │       ├── llm_client.py         # 统一 LLM 调用(支持 enable_thinking 开关)
-│   │       ├── safety_pipeline.py    # 5 阶段安全管线
+│   │       ├── safety_pipeline.py    # PASS / GUIDE / REJECT 安全管线
+│   │       ├── safety_guidance_skill.py # 两阶段教育转化 Skill 适配器
 │   │       ├── auth_service.py / chat_service.py / conversation_service.py
 │   │       ├── trace_logger.py
 │   │       ├── graph_recommender/        # 常驻异构图推荐模块
 │   │       ├── kt_integration.py     # KT runtime 调用适配器(集成模式入口)
-│   │       └── agents/               # 9 个智能体
+│   │       └── agents/               # 教育智能体与安全监测智能体
 │   │           ├── base_agent.py
 │   │           ├── cognitive_diagnosis.py    # 已加 KT 集成入口
 │   │           ├── resource_recommender.py   # SQL 召回 + 资源图模型排序
 │   │           ├── study_buddy.py            # SQL 召回 + 学伴图模型排序
+│   │           ├── content_corrector.py      # 最终内容质量门 (4.3 课题)
 │   │           └── ... (其他 6 个)
 │   ├── config/
 │   │   ├── app.yaml / workflows.yaml
@@ -704,6 +723,19 @@ docker-compose up --build
 
 ## 本地运行验证
 
+安全监测与内容矫正更新已完成以下验证（2026-08-01）：
+
+| 验证项 | 结果 |
+|---|---:|
+| 内容矫正定向测试 | **9/9 通过（0.83 秒）** |
+| 安全 + 内容矫正 + 异常兜底定向测试 | **77/77 通过（1.22 秒）** |
+| 后端完整测试 `pytest tests -q` | **117/117 通过（2.66 秒）** |
+| 前端 TypeScript `tsc --noEmit` | **通过** |
+| PASS / GUIDE / REJECT 与两阶段教育引导 | **端到端通过** |
+| 内容矫正 PASS / PATCH / REGENERATE 与单次重写上限 | **端到端通过** |
+
+完整评测口径与截图见 [安全监测与内容矫正分支更新说明](BRANCH_INTEGRATION_README.md)。
+
 集成分支 `integrate/both-prs` 已通过以下验证(2026-07-07):
 
 | 验证项 | 结果 |
@@ -781,12 +813,14 @@ SELECT * FROM users LIMIT 5;
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | 1-9 | 基础架构、智能体、LangGraph、API、前端、数据表 | Done |
-| 10-11 | 5 阶段安全管线 + 条件路由 | Done |
+| 10-11 | 旧五阶段安全管线 + 条件路由（历史基础） | Done，已由阶段 18 升级 |
 | 12 | 概念/技能/知识关系模型(6 张新表) | Done |
 | 13 | **真实智能体接入 — 资源与学伴共享图推荐模型** | ✅ Done |
 | 14 | **KT 知识追踪集成(课题 4.1)** | ✅ Done(PR #1 + 后端 integrated 模式) |
 | 15 | **预存 bug 修复**:Jinja 模板 default + agent 数量断言 + 右侧面板 5 处 bug | ✅ Done |
 | 17 | 前端右侧面板"重点 Agent"自动突出(决策引擎 + 规则补) | Planned |
+| 18 | **安全监测升级**：PASS / GUIDE / REJECT + 两阶段教育引导 Skill | ✅ Done |
+| 19 | **内容矫正智能体**：PASS / PATCH / REGENERATE + 单次重写上限 | ✅ Done |
 
 ---
 

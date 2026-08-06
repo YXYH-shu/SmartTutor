@@ -36,6 +36,8 @@ export interface AgentConfig {
   designNotes?: string;
 }
 
+const RUNTIME_LLM_MODEL = import.meta.env.VITE_LLM_MODEL || 'glm-4-flash';
+
 export const AGENT_CONFIGS: Record<string, AgentConfig> = {
   emotion_analyzer: {
     name: 'emotion_analyzer',
@@ -45,7 +47,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     icon: 'Heart',
     color: 'rose',
     llmConfig: {
-      model: 'deepseek-v4-flash-0731',
+      model: 'glm-5',
       temperature: 0.4,
       maxTokens: 4096,
       timeout: 60,
@@ -89,22 +91,20 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
   safety_monitor: {
     name: 'safety_monitor',
     displayName: '安全监测',
-    description: '内容安全检测与过滤智能体',
-    version: '1.0',
+    description: '风险与意图识别、三分支决策及安全教育引导智能体',
+    version: '3.0',
     icon: 'Shield',
     color: 'amber',
-    llmConfig: { model: 'deepseek-v4-flash-0731', temperature: 0.1, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: RUNTIME_LLM_MODEL, temperature: 0.1, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
-        { name: 'Stage 1 风险感知', description: '检测是否存在安全风险,无风险直接放行(SAFE)' },
-        { name: 'Stage 2 意图识别', description: '分类为科学好奇/情绪表达/边界试探/明确恶意' },
-        { name: 'Stage 3 价值评估', description: '决定动作:TRANSFORM / SOFT_BLOCK / HARD_BLOCK / REFERRAL' },
-        { name: 'Stage 4 教育引导', description: '主题映射 + 核心概念 + 学段适配(仅 TRANSFORM 路径)' },
-        { name: 'Stage 5 问题转化', description: '语义锚定 + 操作剥离 + 引导嵌入(仅 TRANSFORM)' },
+        { name: '风险与意图识别', description: '联合识别风险类别、用户意图、可执行性、重复试探和危机信号' },
+        { name: '三分支价值评估', description: '按确定性规则选择 PASS / REJECT / GUIDE' },
+        { name: '两轮学科化转化', description: '仅 GUIDE 调用 Skill：第一轮选择相关科目，第二轮在该科目内完善具体学习问题' },
       ],
     },
     designNotes:
-      '独立的安全检测代理,被 5 阶段安全管线(SafetyPipeline)内部调用,不直接参与 Workflow Stage 的智能体调度。每轮对话开始时由 safety_gate 固定节点自动执行。',
+      '每轮对话先由 safety_gate 固定执行。PASS 进入教育智能体链路；REJECT 直接返回拒绝或危机关怀；GUIDE 调用独立 Skill。存在多个强相关科目时，先让学生选择科目，再选择该科目内的具体知识焦点；只有一个相关科目时保留单轮选择。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -115,14 +115,22 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     outputSchema: {
       type: 'object',
       properties: {
-        risk_level: { type: 'string', enum: ['low', 'medium', 'high'] },
-        action: { type: 'string', enum: ['SAFE', 'TRANSFORM', 'SOFT_BLOCK', 'HARD_BLOCK', 'REFERRAL'] },
-        transformed_query: { type: 'string' },
-        guidance: { type: 'string' },
+        branch: { type: 'string', enum: ['PASS', 'REJECT', 'GUIDE'] },
+        risk_category: { type: 'string', enum: ['N', 'A', 'B', 'C', 'D1', 'D2', 'D3'] },
+        intent: { type: 'string', enum: ['learning', 'emotional', 'probing', 'malicious'] },
+        reject_type: { type: 'string' },
+        safe_query: { type: 'string' },
+        selection_mode: { type: 'string', enum: ['two_stage'] },
+        school_subject: { type: 'string' },
+        subject_focus: { type: 'string' },
+        subject_options: { type: 'array', minItems: 2, maxItems: 3 },
+        learning_options: { type: 'array', minItems: 2, maxItems: 3 },
+        recommended_option: { type: 'string' },
+        preserved_elements: { type: 'array' },
       },
     },
     promptSummary:
-      '通过 5 阶段安全管线检测和过滤内容,保障学生使用安全。危险内容拦截或转化,安全内容放行。',
+      '联合识别风险与意图，通过确定性规则分为直接放行、直接拒绝、教育引导三个分支；教育引导由独立 Skill 通过“科目选择→知识焦点选择”逐步完善问题。',
   },
 
   cognitive_diagnosis: {
@@ -132,7 +140,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Brain',
     color: 'violet',
-    llmConfig: { model: 'glm-5.2', temperature: 0.3, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
+    llmConfig: { model: 'glm-5', temperature: 0.3, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '知识点提取', description: '从对话中识别学生涉及的知识点(15-25 个)' },
@@ -176,7 +184,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Route',
     color: 'gold',
-    llmConfig: { model: 'glm-5.2', temperature: 0.5, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
+    llmConfig: { model: 'glm-5', temperature: 0.5, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '诊断解读', description: '基于 cognitive_diagnosis 输出的 mastery_rates 和 knowledge_graph' },
@@ -220,7 +228,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '4.0',
     icon: 'Library',
     color: 'emerald',
-    llmConfig: { model: 'glm-5.2', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: 'Plan 规划', description: 'LLM 仅规划 SQL 召回和两种排序方式' },
@@ -261,7 +269,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Users',
     color: 'cyan',
-    llmConfig: { model: 'glm-5.2', temperature: 0.5, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5', temperature: 0.5, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '需求解析', description: '理解学生当前学习场景和学伴需求' },
@@ -299,7 +307,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '1.0',
     icon: 'Sparkles',
     color: 'pink',
-    llmConfig: { model: 'glm-5.2', temperature: 0.4, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '科学准确性', description: '检查事实、概念、术语是否正确' },
@@ -327,6 +335,50 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
       '矫正和润色教学内容,提升表达清晰度、准确性和教学适切性。',
   },
 
+  content_corrector: {
+    name: 'content_corrector',
+    displayName: '内容矫正',
+    description: '末端教育内容验收：直接输出、局部修改或退回重写',
+    version: '2.0',
+    icon: 'Sparkles',
+    color: 'blue',
+    llmConfig: { model: RUNTIME_LLM_MODEL, temperature: 0, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    thinkingProcess: {
+      stages: [
+        { name: '四项验收', description: '检查科学可靠性、教育完整性、结构清晰度和内容安全性' },
+        { name: '动作判定', description: '在 PASS、PATCH、REGENERATE 三种动作中选择' },
+        { name: '局部修改保护', description: 'PATCH 不得明显缩短内容或破坏标题、编号和列表' },
+        { name: '退回重写', description: '严重缺项时将问题清单退回知识回复智能体，最多一次' },
+      ],
+    },
+    designNotes:
+      '不处理情感，也不生成整篇内容。PASS 逐字输出；PATCH 仅局部修改；REGENERATE 退回 knowledge_responder 完整重写一次。REJECT/GUIDE 安全回复不经过此节点。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        original_response: { type: 'string' },
+        student_question: { type: 'string' },
+        subject: { type: 'string' },
+        grade_level: { type: 'string' },
+        conversation_stage: { type: 'string' },
+        safety_constraints: { type: 'object' },
+      },
+      required: ['original_response'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['PASS', 'PATCH', 'REGENERATE'] },
+        issues: { type: 'array' },
+        patched_response: { type: 'string' },
+        checks: { type: 'object' },
+      },
+      required: ['action', 'issues', 'patched_response', 'checks'],
+    },
+    promptSummary:
+      '验收最终回答：合格直接输出，局部问题小修，严重缺项退回知识回复智能体重写。',
+  },
+
   empathy_generator: {
     name: 'empathy_generator',
     displayName: '共情回复',
@@ -334,7 +386,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '1.0',
     icon: 'HandHeart',
     color: 'orange',
-    llmConfig: { model: 'glm-5.2', temperature: 0.6, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5', temperature: 0.6, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '情感读取', description: '从 emotion_state 识别学生情绪和强度' },
@@ -375,6 +427,7 @@ export const AGENT_DISPLAY_ORDER = [
   'study_buddy',
   'content_polisher',
   'empathy_generator',
+  'content_corrector',
 ];
 
 /**
@@ -562,8 +615,39 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
     },
   ],
+  content_corrector: [
+    {
+      key: 'action',
+      label: '验收动作',
+    },
+    {
+      key: 'status',
+      label: '处理状态',
+    },
+    {
+      key: 'issues',
+      label: '发现问题',
+      format: (v: unknown) => (Array.isArray(v) ? `${v.length} 项` : '0 项'),
+    },
+    {
+      key: 'structure_preserved',
+      label: '结构保留',
+      format: (v: unknown) => (v === true ? '是' : '否'),
+    },
+  ],
   safety_monitor: [
-    { key: 'action', label: '处置' },
-    { key: 'raw_action', label: '原始动作' },
+    { key: 'branch', label: '处理分支' },
+    { key: 'raw_branch', label: '分支代码' },
+    { key: 'safety_context.risk_category', label: '风险类别' },
+    { key: 'safety_context.intent', label: '识别意图' },
+    { key: 'safety_context.reject_type', label: '拒绝原因' },
+    { key: 'safety_context.guidance_skill.selection_phase', label: '选择阶段' },
+    { key: 'safety_context.guidance_skill.school_subject', label: '主科目' },
+    { key: 'safety_context.guidance_skill.subject_focus', label: '知识焦点' },
+    {
+      key: 'safety_context.guidance_skill.learning_options',
+      label: '学习方向',
+      format: (v) => (Array.isArray(v) ? `${v.length} 个选项` : '-'),
+    },
   ],
 };
