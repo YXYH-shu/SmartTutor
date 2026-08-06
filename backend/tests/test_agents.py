@@ -138,8 +138,11 @@ class TestEmotionAnalyzer:
 
 class TestCognitiveDiagnosis:
     @pytest.mark.asyncio
-    async def test_diagnosis(self, _patch_llm):
+    async def test_diagnosis(self, _patch_llm, monkeypatch):
+        from app.config import settings
         from app.services.agents.cognitive_diagnosis import CognitiveDiagnosisAgent
+
+        monkeypatch.setattr(settings.kt, "mode", "off")
 
         expected = {
             "mastery_rates": {"python_basics": 0.8, "functions": 0.3},
@@ -168,8 +171,11 @@ class TestCognitiveDiagnosis:
 
 class TestLearningPath:
     @pytest.mark.asyncio
-    async def test_generate_path(self, _patch_llm):
+    async def test_generate_path(self, _patch_llm, monkeypatch):
+        from app.config import settings
         from app.services.agents.learning_path import LearningPathAgent
+
+        monkeypatch.setattr(settings.lpp, "enabled", False)
 
         expected = {
             "stages": [

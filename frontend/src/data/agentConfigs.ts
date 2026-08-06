@@ -45,7 +45,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     icon: 'Heart',
     color: 'rose',
     llmConfig: {
-      model: 'glm-5',
+      model: 'deepseek-v4-flash-0731',
       temperature: 0.4,
       maxTokens: 4096,
       timeout: 60,
@@ -62,7 +62,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
       ],
     },
     designNotes:
-      '基于 GLM-5 大语言模型,通过多阶段链式思考实现情感分析。每轮对话固定执行(emotion_preprocess 节点),结果写入 state.context 供所有后续 agent 读取。',
+      '基于 DeepSeek V4 Flash 大语言模型进行情感分析。每轮对话固定执行(emotion_preprocess 节点),结果写入 state.context 供所有后续 agent 读取。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -93,7 +93,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '1.0',
     icon: 'Shield',
     color: 'amber',
-    llmConfig: { model: 'glm-5', temperature: 0.1, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'deepseek-v4-flash-0731', temperature: 0.1, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: 'Stage 1 风险感知', description: '检测是否存在安全风险,无风险直接放行(SAFE)' },
@@ -132,7 +132,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Brain',
     color: 'violet',
-    llmConfig: { model: 'glm-5', temperature: 0.3, maxTokens: 4096, timeout: 120, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.3, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '知识点提取', description: '从对话中识别学生涉及的知识点(15-25 个)' },
@@ -176,7 +176,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Route',
     color: 'gold',
-    llmConfig: { model: 'glm-5', temperature: 0.3, maxTokens: 4096, timeout: 120, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.5, maxTokens: 16384, timeout: 180, maxRetries: 3, thinking: true },
     thinkingProcess: {
       stages: [
         { name: '诊断解读', description: '基于 cognitive_diagnosis 输出的 mastery_rates 和 knowledge_graph' },
@@ -201,8 +201,11 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
       type: 'object',
       properties: {
         planning_rationale: { type: 'string' },
+        learning_path: { type: 'array', description: '后端原生 5 阶段路径' },
         stages: { type: 'array', description: '3-5 个学习阶段' },
-        adaptive_rules: { type: 'object' },
+        recommended_questions: { type: 'array', description: 'LPP Runtime 固定 P1-P5 推荐题' },
+        adaptive_rules: { type: 'string' },
+        total_estimated_time: { type: 'string' },
         estimated_completion: { type: 'string' },
       },
     },
@@ -217,7 +220,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '4.0',
     icon: 'Library',
     color: 'emerald',
-    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: 'Plan 规划', description: 'LLM 仅规划 SQL 召回和两种排序方式' },
@@ -258,7 +261,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '3.0',
     icon: 'Users',
     color: 'cyan',
-    llmConfig: { model: 'glm-5', temperature: 0.5, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.5, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '需求解析', description: '理解学生当前学习场景和学伴需求' },
@@ -296,7 +299,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '1.0',
     icon: 'Sparkles',
     color: 'pink',
-    llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.4, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '科学准确性', description: '检查事实、概念、术语是否正确' },
@@ -331,7 +334,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     version: '1.0',
     icon: 'HandHeart',
     color: 'orange',
-    llmConfig: { model: 'glm-5', temperature: 0.6, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
+    llmConfig: { model: 'glm-5.2', temperature: 0.6, maxTokens: 4096, timeout: 60, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
         { name: '情感读取', description: '从 emotion_state 识别学生情绪和强度' },
@@ -400,7 +403,7 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       key: 'diagnosis_source',
       label: '数据来源',
       format: (v: unknown) =>
-        v === 'kt_reekt'
+        v === 'kt_rekt'
           ? '真实KT模型'
           : typeof v === 'string'
             ? v
@@ -434,6 +437,18 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
     },
   ],
   learning_path: [
+    {
+      key: 'recommended_questions',
+      label: '推荐序列',
+      format: (v) => {
+        if (!Array.isArray(v)) return '-';
+        const ids = v.slice(0, 5).map((item: any, index: number) => {
+          const questionId = typeof item === 'object' && item !== null ? item.question_id : undefined;
+          return `P${index + 1}${questionId !== undefined ? `(#${questionId})` : ''}`;
+        });
+        return ids.length > 0 ? ids.join(' → ') : '-';
+      },
+    },
     {
       key: 'stages',
       label: '学习阶段',

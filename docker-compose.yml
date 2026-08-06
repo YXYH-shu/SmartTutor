@@ -32,8 +32,10 @@ services:
   # ------------------------------------------------------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
     container_name: smart_tutor_backend
     restart: unless-stopped
     ports:
@@ -42,16 +44,22 @@ services:
       SMART_TUTOR_DATABASE__ASYNC_MYSQL_URL: mysql+aiomysql://tutor:tutor123@mysql:3306/smart_tutor
       SMART_TUTOR_APP__DEBUG: "true"
       SMART_TUTOR_APP__SECRET_KEY: ${SECRET_KEY:-change-me-in-production-32chars!!}
-      SMART_TUTOR_LLM__PROVIDER: ${LLM_PROVIDER:-glm}
-      SMART_TUTOR_LLM__BASE_URL: ${LLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
-      SMART_TUTOR_LLM__API_KEY: ${LLM_API_KEY:-sk-xxxxxxxxxxxxxxxx}
-      SMART_TUTOR_LLM__MODEL_NAME: ${LLM_MODEL_NAME:-glm-4-flash}
       SMART_TUTOR_LANGGRAPH__CHECKPOINT_TYPE: ${CHECKPOINT_TYPE:-memory}
+      SMART_TUTOR_KT__MODE: integrated
+      SMART_TUTOR_KT__SKILL_PATH: services/kt-runtime-skill
+      SMART_TUTOR_KT__DEVICE: ${KT_DEVICE:-cpu}
+      SMART_TUTOR_KT__DEMO_STUDENT_ID: ${KT_STUDENT_ID:-43}
+      SMART_TUTOR_KT__FALLBACK_TO_LLM: "false"
+      SMART_TUTOR_LPP__ENABLED: "true"
+      SMART_TUTOR_LPP__SKILL_PATH: services/lpp-skill
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
-      - ./backend:/app
+      - ./backend:/app/backend
+      - ./services/kt-runtime-skill:/app/services/kt-runtime-skill:ro
+      - ./services/lpp-skill:/app/services/lpp-skill:ro
+    working_dir: /app/backend
     command: >
       uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 

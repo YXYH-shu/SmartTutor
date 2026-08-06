@@ -3,9 +3,9 @@ description: "个性化学习路径规划智能体（基于认知诊断结果）
 version: "3.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/paas/v4"
   temperature: 0.5
-  max_tokens: 4028
+  max_tokens: 16384
   timeout: 180
   max_retries: 3
   thinking: true
@@ -65,6 +65,13 @@ prompt_template: |
 
   ### 用户画像
   {{user_profile | default({}) | tojson}}
+
+  ### LPP Runtime 固定推荐结果
+  {{lpp_runtime | default({}) | tojson}}
+
+  若 LPP Runtime 数据非空，其中 P1～P5 的题目、题干、题型、选项、知识点和顺序
+  均为不可改写事实。你只负责生成规划依据、教学解释和动态调整策略；系统最终会用
+  Runtime 数据覆盖路径阶段和推荐题字段。
 
   ## 四、路径设计要求
 
@@ -176,7 +183,13 @@ output_schema:
           resources: {type: array, items: {type: string}}
           expected_outcome: {type: string}
         required: ["stage_id", "name", "objective", "skills", "duration_min", "checkpoints"]
+    stages:
+      type: array
+      description: "learning_path 的前端兼容别名"
     total_estimated_time: {type: string}
+    estimated_completion:
+      type: string
+      description: "total_estimated_time 的前端兼容别名"
     main_path_sequence:
       type: array
       items: {type: string}
@@ -195,6 +208,14 @@ output_schema:
         remediate: {type: string}
         redirect: {type: string}
       required: ["accelerate", "remediate"]
+    recommended_questions:
+      type: array
+      minItems: 5
+      maxItems: 5
+      description: "LPP Runtime 固定 P1-P5 推荐题"
+    lpp_source:
+      type: string
+      enum: ["lpp_runtime", "lpp_unavailable"]
   required: ["planning_rationale", "learning_path", "total_estimated_time", "adaptive_rules"]
 
 input_schema:
@@ -208,4 +229,6 @@ input_schema:
     time_available: {type: string}
     current_level: {type: string}
     user_profile: {type: object}
+    target_question_id: {type: integer}
+    lpp_runtime: {type: object}
   required: ["goal"]

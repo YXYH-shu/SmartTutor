@@ -148,6 +148,9 @@ class BaseAgent(abc.ABC):
         else:
             validated = raw_content if isinstance(raw_content, dict) else {}
 
+        # Merge deterministic runtime/tool facts before logging and persistence.
+        validated = await self.finalize_output(validated, enriched, context)
+
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
         # 5. Persist execution log
@@ -203,6 +206,15 @@ class BaseAgent(abc.ABC):
     async def post_process(self, output: dict, context: dict) -> None:
         """Hook called after successful validation. Override in subclasses."""
         pass
+
+    async def finalize_output(
+        self,
+        output: dict,
+        input_data: dict,
+        context: dict,
+    ) -> dict:
+        """Merge deterministic runtime/tool output before logging and persistence."""
+        return output
 
     # ------------------------------------------------------------------
     # Internal helpers
