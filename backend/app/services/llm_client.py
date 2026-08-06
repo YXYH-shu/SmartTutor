@@ -85,9 +85,21 @@ class LLMClient:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        # thinking 显式开启时才传 extra_body。GLM-5 默认就会 reasoning，
-        # 不需要额外参数；只有非默认推理模型需要显式开启时才传。
-        if thinking and settings.llm.enable_thinking:
+        # thinking extra_body 因后端而异：
+        # - Qwen3 系列在 vLLM 上默认会先 reasoning 几百 token，必须用
+        #   chat_template_kwargs.enable_thinking=False 才能拿到干净 JSON
+        # - GLM-5 默认就 reasoning，不传 extra_body；只有显式 thinking=True
+        #   且全局 enable_thinking=True 时才传 thinking.enabled
+        _model = (model or self._default_model or "").lower()
+        _base = str(self._client.base_url or "")
+        _is_qwen3_vllm = _model.startswith("qwen3") and (
+            "localhost" in _base or "127.0.0.1" in _base
+        )
+        if _is_qwen3_vllm:
+            kwargs["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": bool(thinking)}
+            }
+        elif thinking and settings.llm.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
         last_exc: Exception | None = None
