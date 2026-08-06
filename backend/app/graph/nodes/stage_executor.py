@@ -23,16 +23,25 @@ from app.services.agents import get_agent
 
 logger = logging.getLogger(__name__)
 
-_STAGE_TIMEOUT_SECONDS = 90.0
-_KNOWLEDGE_RESERVE_SECONDS = 35.0
+# 全局阶段总预算（秒）。覆盖所有 agent 串行执行的最大时长。
+# 通过 SMART_TUTOR_STAGE__TOTAL_TIMEOUT_SECONDS 实时覆盖。
+_STAGE_TIMEOUT_SECONDS = float(
+    __import__("app.config", fromlist=["settings"]).settings.stage.total_timeout_seconds
+)
+# 给 knowledge_responder 至少保留多少秒（即使前面 agent 把总预算花光）。
+_KNOWLEDGE_RESERVE_SECONDS = float(
+    __import__("app.config", fromlist=["settings"]).settings.stage.knowledge_reserve_seconds
+)
+# 单 agent 超时（秒）。0 表示用 _STAGE_TIMEOUT_SECONDS 的剩余时间。
+# 实测智谱 GLM-5 coding 端点单次调用 13-30s，原来的 12s 太紧。
 _AGENT_TIMEOUT_SECONDS = {
-    "cognitive_diagnosis": 40.0,
-    "resource_recommender": 12.0,
-    "learning_path": 20.0,
-    "study_buddy": 15.0,
-    "knowledge_responder": 35.0,
-    "content_polisher": 12.0,
-    "empathy_generator": 12.0,
+    "cognitive_diagnosis": 90.0,
+    "resource_recommender": 30.0,
+    "learning_path": 60.0,
+    "study_buddy": 30.0,
+    "knowledge_responder": 60.0,
+    "content_polisher": 30.0,
+    "empathy_generator": 30.0,
 }
 
 _engine: DecisionEngine | None = None

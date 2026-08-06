@@ -102,6 +102,19 @@ class LPPSettings(BaseSettings):
     seed: int = 42
 
 
+class StageSettings(BaseSettings):
+    """stage_executor 的超时预算（秒）。
+
+    智谱 GLM-5 在 coding 端点单次调用约 13-30s，多个 agent 串行后总预算
+    必须放宽。所有字段可通过 .env 覆盖。
+    """
+
+    # 整个 stage（一轮所有 agent）的总预算。
+    total_timeout_seconds: float = 240.0
+    # 给 knowledge_responder 至少保留多少秒（兜底，防止它没机会运行）。
+    knowledge_reserve_seconds: float = 60.0
+
+
 class GraphRecommenderSettings(BaseSettings):
     """Configuration for the standalone heterogeneous graph recommender."""
 
@@ -139,6 +152,7 @@ class Settings(BaseSettings):
     kt: KTSettings = Field(default_factory=KTSettings)
     graph_recommender: GraphRecommenderSettings = Field(default_factory=GraphRecommenderSettings)
     lpp: LPPSettings = Field(default_factory=LPPSettings)
+    stage: StageSettings = Field(default_factory=StageSettings)
 
 
 # Singleton – reads .env and env vars directly
