@@ -31,8 +31,8 @@ prompt_template: |
   - 当前阶段: {{current_stage | default('无')}}
   - 阶段内执行次数: {{stage_counter | default(0)}}
   - 是否为当前流程的最后阶段: {{'是' if is_last_stage else '否'}}
-  - 用户情感: {{latest_emotion | default('未知')}}
-  - 情感强度: {{emotion_intensity | default('未知')}}
+  - 用户情感依据: {{latest_emotion | default('未知')}}
+  - 情感极性(positive/negative/neutral): {{emotion_polarity | default('未知')}}
 
   ## 最近对话（最近5轮）
   {% for msg in recent_messages | default([]) %}

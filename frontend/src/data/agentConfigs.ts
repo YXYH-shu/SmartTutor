@@ -42,29 +42,28 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
   emotion_analyzer: {
     name: 'emotion_analyzer',
     displayName: '情感分析',
-    description: '情感分析与学习状态评估智能体',
-    version: '1.0',
+    description: '情感分析智能体（微调 Qwen3.5-9B 三分类专精模型，远程 vLLM 推理）',
+    version: '2.0',
     icon: 'Heart',
     color: 'rose',
     llmConfig: {
-      model: 'glm-5',
-      temperature: 0.4,
-      maxTokens: 4096,
+      model: 'qwen3.5-9b-emotion',
+      temperature: 0,
+      maxTokens: 256,
       timeout: 60,
       maxRetries: 2,
       thinking: false,
     },
     thinkingProcess: {
       stages: [
-        { name: '情感识别', description: '分析学生消息中的情感倾向和情绪类型' },
-        { name: '强度评估', description: '量化情感强度 (0-1),识别情绪激烈程度' },
-        { name: '趋势分析', description: '追踪情绪变化趋势:改善、稳定或下降' },
-        { name: '学习意愿', description: '评估学生当前的学习意愿和动机水平' },
-        { name: '回复语气', description: '推荐最佳回复语气风格,如鼓励、引导、严肃等' },
+        { name: '对话拼接', description: '将 message_history 与 current_message 拼成师生对话上下文' },
+        { name: '末句识别', description: '定位最后一条学生发言作为情感判断目标' },
+        { name: '三分类判断', description: '微调 Qwen3.5-9B 直接输出 positive / negative / neutral' },
+        { name: '依据生成', description: '给出简短中文判断依据，便于后续 agent 上下文理解' },
       ],
     },
     designNotes:
-      '基于 DeepSeek V4 Flash 大语言模型进行情感分析。每轮对话固定执行(emotion_preprocess 节点),结果写入 state.context 供所有后续 agent 读取。',
+      '通过 SSH 隧道转发到远程 vLLM（默认 localhost:8001）。隧道中断时该 agent 会失败但不影响其他 agent。每轮对话固定执行（emotion_preprocess 节点），结果写入 state.context 供所有后续 agent 读取。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -76,16 +75,13 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     outputSchema: {
       type: 'object',
       properties: {
-        emotion: { type: 'string' },
-        intensity: { type: 'number', minimum: 0, maximum: 1 },
-        trend: { type: 'string', enum: ['improving', 'stable', 'declining'] },
-        learning_intent: { type: 'string' },
-        suggested_response_tone: { type: 'string' },
+        emotion: { type: 'string', enum: ['positive', 'negative', 'neutral'] },
+        reason: { type: 'string' },
       },
-      required: ['emotion', 'intensity', 'trend', 'learning_intent', 'suggested_response_tone'],
+      required: ['emotion', 'reason'],
     },
     promptSummary:
-      '分析学生的情感状态、学习意愿和情绪变化趋势,为后续智能体提供情感上下文,并建议最佳回复语气风格。',
+      '基于师生对话判断最后一句学生发言的情感极性（positive/negative/neutral），并给出中文依据。',
   },
 
   safety_monitor: {

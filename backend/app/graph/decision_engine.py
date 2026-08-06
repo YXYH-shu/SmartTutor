@@ -133,14 +133,14 @@ class DecisionEngine:
                 "content": getattr(msg, "content", ""),
             })
 
-        # Emotion info
+        # Emotion info — v2 三分类（positive/negative/neutral），无 intensity
         emotion_history = state.get("emotion_history", [])
         latest_emotion = ""
-        emotion_intensity = ""
+        emotion_polarity = ""
         if emotion_history:
             last = emotion_history[-1] if isinstance(emotion_history[-1], dict) else {}
-            latest_emotion = last.get("emotion", "未知")
-            emotion_intensity = last.get("intensity", "未知")
+            latest_emotion = last.get("reason", "") or "未知"
+            emotion_polarity = last.get("emotion", "未知")
 
         # Check if current stage is the last in its workflow
         is_last_stage = False
@@ -158,7 +158,7 @@ class DecisionEngine:
             stage_counter=state.get("stage_counter", 0),
             is_last_stage=is_last_stage,
             latest_emotion=latest_emotion,
-            emotion_intensity=emotion_intensity,
+            emotion_polarity=emotion_polarity,
             recent_messages=recent,
         )
 

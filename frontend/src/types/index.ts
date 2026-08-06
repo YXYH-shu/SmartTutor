@@ -83,9 +83,9 @@ export interface Message {
 }
 
 export interface EmotionState {
-  emotion: string;
-  intensity: number;
-  trend?: string;
+  // v2: 三分类微调模型输出（positive/negative/neutral + 中文依据）
+  emotion: 'positive' | 'negative' | 'neutral' | string;
+  reason?: string;
 }
 
 /* ── SSE Stream ───────────────────────────────────────────────── */
