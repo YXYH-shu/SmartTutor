@@ -3,7 +3,7 @@ description: "风险与意图识别、三分支决策及安全教育引导智能
 version: "3.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.1
   max_tokens: 1800
   timeout: 60

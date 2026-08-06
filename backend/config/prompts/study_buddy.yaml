@@ -4,7 +4,7 @@ version: "4.0"
 
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.3
   max_tokens: 4096
   timeout: 180

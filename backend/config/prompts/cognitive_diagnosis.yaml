@@ -3,7 +3,7 @@ description: "认知诊断与知识掌握度评估智能体（LLM 模拟 Knowled
 version: "3.0"
 llm_config:
   model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/paas/v4"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.3
   max_tokens: 16384
   timeout: 180

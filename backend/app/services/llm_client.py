@@ -169,7 +169,12 @@ class LLMClient:
         limiter = _get_global_limiter()
         limiter.reconfigure(settings.llm.rate_limit_rpm, settings.llm.rate_limit_tpm)
         prompt_chars = sum(len(m["content"]) for m in messages)
-        await limiter.acquire(int(_max_tokens) + prompt_chars // 2)
+        expected = int(_max_tokens) + prompt_chars // 2
+        logger.debug(
+            "LLM limiter pre-acquire: rpm=%d tpm=%d events=%d expected_tokens=%d",
+            limiter.rpm, limiter.tpm, len(limiter._events), expected,
+        )
+        await limiter.acquire(expected)
 
         last_exc: Exception | None = None
         used_json_mode = json_mode  # track whether we already tried without it
