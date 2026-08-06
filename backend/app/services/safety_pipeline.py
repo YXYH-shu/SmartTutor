@@ -263,25 +263,45 @@ class SafetyPipeline:
                 )
             except Exception as exc:
                 logger.exception(
-                    "Safety adjudicator failed; using deterministic fallback"
+                    "Safety adjudicator failed; using primary classifier result"
+                    " (or deterministic fallback if primary also unavailable)"
                 )
-                classification = self._fallback_classification(
-                    query,
-                    error_code=type(exc).__name__,
-                )
-                classification.update(
-                    {
-                        "decision_source": "local_fallback",
-                        "primary_model_status": (
-                            "error" if primary_error is not None else "needs_adjudication"
-                        ),
-                        "adjudication_reason": adjudication_reason,
-                        "primary_error_code": (
-                            type(primary_error).__name__ if primary_error else None
-                        ),
-                        "adjudicator_error_code": type(exc).__name__,
-                    }
-                )
+                if primary is not None and primary.get("verdict") in ("safe", "risk"):
+                    # 信任主分类器：它已经成功跑完，只是触发了二级复核。adjudicator
+                    # 失败不应推翻主分类器的判断（之前直接走 deterministic fallback
+                    # 会丢失 risk/A 的判断，把"无人机撞鸟"误判成 PASS）。
+                    classification = dict(primary)
+                    classification.update(
+                        {
+                            "decision_source": "primary_after_adjudicator_error",
+                            "primary_model_status": (
+                                "error" if primary_error is not None else "needs_adjudication"
+                            ),
+                            "adjudication_reason": adjudication_reason,
+                            "primary_error_code": (
+                                type(primary_error).__name__ if primary_error else None
+                            ),
+                            "adjudicator_error_code": type(exc).__name__,
+                        }
+                    )
+                else:
+                    classification = self._fallback_classification(
+                        query,
+                        error_code=type(exc).__name__,
+                    )
+                    classification.update(
+                        {
+                            "decision_source": "local_fallback",
+                            "primary_model_status": (
+                                "error" if primary_error is not None else "needs_adjudication"
+                            ),
+                            "adjudication_reason": adjudication_reason,
+                            "primary_error_code": (
+                                type(primary_error).__name__ if primary_error else None
+                            ),
+                            "adjudicator_error_code": type(exc).__name__,
+                        }
+                    )
         else:
             classification = primary or {}
             local_benign_guard = (

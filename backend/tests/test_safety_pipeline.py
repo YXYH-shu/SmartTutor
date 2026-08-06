@@ -762,7 +762,7 @@ async def test_skill_adapter_loads_own_skill_and_validates_output():
     system_prompt = llm.chat_completion.await_args.kwargs["system_prompt"]
     assert "安全教育问题转化器" in system_prompt
     assert "只删除、抽象或替换" in system_prompt
-    assert llm.chat_completion.await_args.kwargs["max_tokens"] == 1200
+    assert llm.chat_completion.await_args.kwargs["max_tokens"] == 2048
     assert llm.chat_completion.await_args.kwargs["temperature"] == 0.1
     assert llm.validate_json_response.await_args.kwargs["max_repair_attempts"] == 0
     assert result["selection_mode"] == "two_stage"
