@@ -147,7 +147,10 @@ class SafetyGuidanceSkill:
             system_prompt=self._instructions,
             model=settings.llm.model_name,
             temperature=0.1,
-            max_tokens=1200,
+            # 1200 不够：3 个 subject_options × 多字段 + constraints_applied
+            # 实测会被截断在最后一个 subject_option 上，导致 transformation_summary
+            # 缺失，schema 校验失败、走兜底（core_topic 原样回放）。
+            max_tokens=2048,
             response_format="json",
             thinking=False,
         )

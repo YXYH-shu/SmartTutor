@@ -68,14 +68,19 @@ def _messages_for_stage(state: TutorState) -> list[Any]:
 
 
 def _guide_teaching_fallback(safety_context: dict[str, Any]) -> str:
-    """Keep a confirmed educational transition useful during LLM outages."""
+    """Fallback used when stage_executor agents fail (rate limit, outage, etc.).
+
+    Avoid claiming a specific cause — the actual reason might be quota
+    exhaustion, network error, or model timeout. Tell the student we need
+    more info instead of pretending nothing happened.
+    """
     selected = str(safety_context.get("selected_option") or "这个知识点").strip()
     safe_query = str(safety_context.get("safe_query") or "").strip()
     question_line = f"\n\n📘 我们要探究的问题是：{safe_query}" if safe_query else ""
     return (
         f"很好，我们就从“{selected}”开始。{question_line}\n\n"
         "可以先抓住三个学习线索：现象是什么、背后的原理是什么，以及现实中应当如何安全判断和防护。"
-        "老师这边刚才连接模型时出现了短暂波动，你可以继续告诉我你的年级或最困惑的一点，我会接着为你讲解。🙂"
+        "老师这边还需要再准备一下具体讲解内容，你可以先告诉我你的年级或最困惑的一点，我会接着为你梳理。"
     )
 
 
