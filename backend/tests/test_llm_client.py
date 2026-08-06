@@ -51,6 +51,7 @@ async def test_json_mode_retries_without_thinking_when_only_reasoning_is_returne
     )
     client._default_model = "glm-5.2"
     client._default_max_tokens = 16384
+    client._max_retries = 3
     monkeypatch.setattr(settings.llm, "enable_thinking", True)
     monkeypatch.setattr(settings.llm, "max_retries", 3)
 
