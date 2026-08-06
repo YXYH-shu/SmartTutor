@@ -1,9 +1,9 @@
-# SmartTutor — 多智能体自适应教育系统
+﻿# SmartTutor — 多智能体自适应教育系统
 
 SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 8 个核心教育智能体 + 1 个安全监测智能体,实现**认知诊断、情感分析、学习路径规划、资源推荐、学伴匹配、知识问答**等功能,配合 5 阶段安全管线保障学生使用安全。后端采用 FastAPI + SQLAlchemy 异步架构,前端为 React + TypeScript SPA。
 
 > **集成现状**:本分支 `integrate/both-prs` 已合并两个独立开发的 PR:
-> - **PR #2 资源推荐**:把 `resource_recommender` 从 LLM 模拟升级为真实 CTR 排序模型(课题 4.2)
+> - **资源与学伴推荐**:`resource_recommender` 与 `study_buddy` 共用异构图推荐模型，分别提供资源/学伴的个性化排序与相似度排序
 > - **PR #1 KT 诊断**:引入 `kt-runtime-skill`,内化 REKT 知识追踪模型(课题 4.1)。`cognitive_diagnosis` agent 可通过开关集成调用,前端也可走 iframe 独立服务模式
 
 ---
@@ -15,7 +15,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 - [图编排与流转机制](#图编排与流转机制)
 - [5 阶段安全管线](#5-阶段安全管线)
 - [KT 知识追踪集成(课题 4.1)](#kt-知识追踪集成课题-41)
-- [资源推荐 CTR 模型(课题 4.2)](#资源推荐-ctr-模型课题-42)
+- [资源与学伴图推荐](#资源与学伴图推荐)
 - [预定义 Workflow](#预定义-workflow)
 - [前端设计与右侧面板](#前端设计与右侧面板)
 - [数据库设计](#数据库设计)
@@ -60,8 +60,8 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 │              │  │ (REKT 知识追踪)       │    │         │
 │              │  └──────────────────────┘    │         │
 │              │  ┌──────────────────────┐    │         │
-│              │  │ CTR ranking model    │ ← resource_recommender │
-│              │  │ (资源打分)            │    │         │
+│              │  │ Heterogeneous GAT    │ ← resource_recommender / study_buddy │
+│              │  │ (资源与学伴图推荐)    │    │         │
 │              │  └──────────────────────┘    │         │
 │              └─────────────────────────────┘         │
 ├─────────────────────────────────────────────────────┤
@@ -109,18 +109,19 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。系统通过 
 - **输入依赖**:`diagnosis_result` 和 `knowledge_graph`(来自认知诊断)
 - **参数**:temperature=0.3
 
-#### 4. ResourceRecommenderAgent — 资源推荐 (v3.0)
+#### 4. ResourceRecommenderAgent — 资源推荐 (v4.0)
 
-- **职责**:个性化学习资源推荐。**已集成真实 CTR ranking 模型**,通过 plan/tool calling 模式调度召回(候选/SQL/ItemCF)和排序工具,推荐结果来自真实模型打分而非 LLM 模拟(详见 [资源推荐 CTR 模型](#资源推荐-ctr-模型课题-42))
+- **职责**:个性化学习资源推荐。通过 plan/tool calling 仅调度 SQL 召回和排序；个性化排序使用异构 GAT，资源相似度使用冻结文本向量(详见 [资源与学伴图推荐](#资源与学伴图推荐))
 - **输入依赖**:`diagnosis_result`(来自认知诊断)
 - **安全设计**:SQL 检索工具带表名白名单 + 关键字黑名单 + session 级只读保护(`PRAGMA query_only` / `SET TRANSACTION READ ONLY`)
 - **参数**:temperature=0.4
 
-#### 5. StudyBuddyAgent — 学伴推荐 (v3.0)
+#### 5. StudyBuddyAgent — 学伴推荐 (v4.0)
 
-- **职责**:学伴匹配推荐。当前通过 LLM 模拟多维度匹配(知识互补/水平相似/风格互补/情感匹配),后续将接入真实匹配算法(基于 `learner_learner_relations` 多维相似度)
-- **输入依赖**:`knowledge_graph` 和 `topic`
-- **参数**:temperature=0.5
+- **职责**:个性化学习伙伴推荐。通过 plan/tool calling 仅调度 SQL 召回和排序；个性化排序与相似度排序均使用共享异构图模型(详见 [资源与学伴图推荐](#资源与学伴图推荐))
+- **输入依赖**:`topic`、学习画像和诊断结果(仅在本轮问题没有明确检索目标时辅助 SQL 召回)
+- **安全设计**:SQL 检索工具限制在用户、画像、知识点交互和知识点表，禁止查询邮箱与密码字段；SQL 同样经只读保护执行
+- **参数**:temperature=0.3
 
 #### 6. KnowledgeResponderAgent — 知识问答
 
@@ -156,7 +157,7 @@ CognitiveDiagnosis ──→ diagnosis_result / mastery_rates / knowledge_graph
         ↓                       ↑
 LearningPath         (依赖 diagnosis + knowledge_graph)
         ↓ learning_plan
-ResourceRecommender ──→ resource_list (依赖 diagnosis_result + CTR 模型)
+ResourceRecommender ──→ resource_list (依赖 diagnosis_result + 图推荐模型)
         ↓                       ↑
 KnowledgeResponder   (合并 diagnosis + resource + buddy + plan)
         ↓ response_text
@@ -292,30 +293,82 @@ Stage 5 问题转化 ─── 语义锚定 + 操作剥离 + 引导嵌入(仅 TR
 
 ---
 
-## 资源推荐 CTR 模型(课题 4.2)
+## 资源与学伴图推荐
 
 ### 架构
 
-PR #2 把 `resource_recommender` agent 从 11 行扩展到 1655 行,实现了完整的 plan/tool/reflection/summary 智能体循环:
+`resource_recommender` 与 `study_buddy` 使用相同的 plan/tool/reflection/summary 循环，运行时只保留 SQL 召回和排序两类工具：
 
 ```
-LLM(Plan) → 选 tool(CandidateStore / SqlRetrieval / ItemCF / RankTool)
+LLM(Plan) → SqlRetrievalTool → RankingTool(personality / similarity)
+                 ↓
+        Tool 执行(SQL 召回或对应全集兜底 → 排序)
                 ↓
-        Tool 执行(召回 → 排序)
+        LLM(Reflection) → 检查计划和执行事实,必要时重新规划
                 ↓
-        LLM(Reflection) → 检查覆盖度,必要时补充召回
-                ↓
-        LLM(Summary) → 生成自然语言推荐文本 + 结构化资源列表
+        LLM(Summary) → 生成自然语言推荐文本 + 结构化结果列表
 ```
 
 ### 真实模型集成
 
 | 组件 | 文件 | 说明 |
 |------|------|------|
-| 模型权重 | `backend/algorithm/resource_recommendation/checkpoints/smart_tutor_mock_init/model.pt` | CTR ranking 预训练 checkpoint |
-| 模型代码 | `backend/algorithm/resource_recommendation/model.py` (1714 行) | 完整模型实现 |
-| 训练流程 | `backend/algorithm/resource_recommendation/train.py` / `trainer.py` | 训练入口 |
-| 在线推理 | `backend/app/services/resource_ranking_predictor.py` | 推理适配器,加载 checkpoint |
+| 模型权重 | `backend/algorithm/graph_recommender/ckpt/` | 图编码器、资源排序头、学伴排序头与模型参数 JSON |
+| 模型代码 | `backend/algorithm/graph_recommender/models/hetero_gat.py` | 三类节点、固定关系的异构 GAT |
+| 训练流程 | `backend/algorithm/graph_recommender/train.py` | 图预训练与双任务排序训练入口 |
+| 在线推理 | `backend/algorithm/graph_recommender/runtime/recommender.py` | 常驻图快照，请求时执行全图前向 |
+
+### 两个智能体的排序行为
+
+| 智能体 | `personality` | `similarity` | SQL 未调用或为空时 |
+|---|---|---|---|
+| 资源推荐 | 共享 GAT 全图前向后，以资源排序头给 SQL 候选打分 | SQL 结果作为资源锚点，用冻结文本 Embedding 分别计算锚点-资源余弦相似度；多锚点不聚合 | `personality` 使用全部资源；`similarity` 没有锚点时降级为全部资源的 `personality` |
+| 学伴推荐 | 共享 GAT 全图前向后，以学伴排序头给 SQL 候选打分 | 共享 GAT 全图前向后，计算当前用户与候选学伴的节点向量余弦相似度 | 使用全部活跃用户；图模型排除自己和已有学伴 |
+
+两个智能体都使用明确的数据库 ID 与图节点索引映射；调用方和输出始终使用数据库 ID。资源允许重复学习，不会因已有资源交互被过滤。
+
+### 训练与启动
+
+图推荐器从配置的 `ckpt/` 目录读取以下四个文件：
+
+```text
+encoder.pt
+resource_scorer.pt
+peer_scorer.pt
+model_config.json
+```
+
+使用业务数据训练：
+
+```bash
+cd backend
+alembic upgrade head
+
+# 确认 .env 中的图模型目录与文本模型；文本模型可填写 Hugging Face 名称或本地目录
+# SMART_TUTOR_GRAPH_RECOMMENDER__CHECKPOINT_DIR=algorithm/graph_recommender/ckpt
+# SMART_TUTOR_GRAPH_RECOMMENDER__EMBEDDING_MODEL_ID=BAAI/bge-small-zh-v1.5
+python algorithm/graph_recommender/train.py
+
+# 训练完成后重启后端，使常驻图重新加载这四个文件
+uvicorn app.main:app --reload --port 8000
+```
+
+训练命令读取 `ckpt/model_config.json` 的图模型和训练参数，并将训练结果写入配置的 checkpoint 目录。训练与后端必须使用同一个 `SMART_TUTOR_GRAPH_RECOMMENDER__CHECKPOINT_DIR`。文本 Embedding 不进入 checkpoint，而是缓存到 `graph_node_embeddings` 表。
+
+训练前需要有 `users`、`learning_resources`、`knowledge_points` 节点数据，以及至少一种可训练关系：`learner_resource_interactions` 或 `learner_learner_relations`。其余图关系为 `resource_knowledge`、`learner_knowledge_interactions`、`knowledge_knowledge`；命令会先输出数据审计，再按时间切分训练/验证/测试边并保存三份权重。详见 [图推荐训练与部署手册](backend/algorithm/graph_recommender/README.md)。
+
+### 运行时同步与演示接口
+
+后端启动时一次性加载节点、边、模型和 Embedding 缓存。每次图排序请求都会在当前完整图快照上执行 GAT 前向，再计算排序分数；不会复用旧的聚合向量。通过应用 ORM 成功提交用户、资源、知识点或五类图关系变更时，`GraphAwareAsyncSession` 会自动调用 `sync_after_commit(changes)`，重建图并原子发布新快照。
+
+为后续数据写入和运维预留的进程内接口为：`start()`、`sync_after_commit(changes)`、`refresh_full(changes=None)`、`reload_model(checkpoint_dir=None)`、`get_status()`。直连 SQL、外部服务或批量导入必须在数据库提交成功后显式调用 `sync_after_commit(changes)`；多进程部署需要将同一批变更广播至每个后端进程。`GraphChange` 的节点/边事件结构、五类关系名和调用示例见 [图推荐训练和部署手册](backend/algorithm/graph_recommender/README.md#图同步预留接口)。
+
+以下接口仅供开发验证，不需要认证，也不会写入推荐记录或执行日志：
+
+```text
+POST /api/v1/agent-demos/resource-recommender/run
+POST /api/v1/agent-demos/study-buddy/run
+```
 
 ### SQL 检索工具的三层安全保护
 
@@ -471,22 +524,20 @@ SmartTutor/
 │   │       ├── safety_pipeline.py    # 5 阶段安全管线
 │   │       ├── auth_service.py / chat_service.py / conversation_service.py
 │   │       ├── trace_logger.py
-│   │       ├── resource_ranking_predictor.py  # CTR 模型在线推理适配器
+│   │       ├── graph_recommender/        # 常驻异构图推荐模块
 │   │       ├── kt_integration.py     # KT runtime 调用适配器(集成模式入口)
 │   │       └── agents/               # 9 个智能体
 │   │           ├── base_agent.py
 │   │           ├── cognitive_diagnosis.py    # 已加 KT 集成入口
-│   │           ├── resource_recommender.py   # 已加 CTR 模型 + plan/tool calling
-│   │           └── ... (其他 7 个)
-│   ├── algorithm/                    # 课题 4.2 资源推荐算法
-│   │   └── resource_recommendation/  # 训练 + 推理 + 模型 checkpoint
+│   │           ├── resource_recommender.py   # SQL 召回 + 资源图模型排序
+│   │           ├── study_buddy.py            # SQL 召回 + 学伴图模型排序
+│   │           └── ... (其他 6 个)
 │   ├── config/
 │   │   ├── app.yaml / workflows.yaml
-│   │   ├── resource_ranking_model.yaml  # CTR 模型配置
 │   │   └── prompts/                  # 15 个提示词 YAML(已加 recent_messages default 防御)
 │   ├── alembic/                      # 数据库迁移
 │   ├── tests/test_agents.py          # 19 个测试(全部通过)
-│   └── requirements.txt              # 已加 torch + numpy(CTR 推理用)
+│   └── requirements.txt              # 包含图模型推理依赖
 │
 ├── frontend/                         # 前端服务(React + TypeScript + Vite)
 │   └── src/
@@ -679,6 +730,9 @@ docker-compose up --build
 | `SMART_TUTOR_KT__DEVICE` | KT 模型设备 | `cuda:0` |
 | `SMART_TUTOR_KT__DEFAULT_TARGETS` | 默认预测目标 kp_id(逗号分隔) | (空,用 kt config 内置全部) |
 | `SMART_TUTOR_KT__FALLBACK_TO_LLM` | KT 失败时是否降级到 LLM | `true` |
+| `SMART_TUTOR_GRAPH_RECOMMENDER__ENABLED` | 是否在后端启动时加载常驻图推荐器 | `true` |
+| `SMART_TUTOR_GRAPH_RECOMMENDER__CHECKPOINT_DIR` | 四个图模型文件所在目录，相对路径以 `backend/` 为基准 | `algorithm/graph_recommender/ckpt` |
+| `SMART_TUTOR_GRAPH_RECOMMENDER__EMBEDDING_MODEL_ID` | 冻结文本 Embedding 的 Hugging Face 名称或本地目录 | `BAAI/bge-small-zh-v1.5` |
 
 ### 前端(`frontend/.env`)
 
@@ -724,10 +778,9 @@ SELECT * FROM users LIMIT 5;
 | 1-9 | 基础架构、智能体、LangGraph、API、前端、数据表 | Done |
 | 10-11 | 5 阶段安全管线 + 条件路由 | Done |
 | 12 | 概念/技能/知识关系模型(6 张新表) | Done |
-| 13 | **真实智能体接入 — 资源推荐 CTR 模型(课题 4.2)** | ✅ Done(PR #2 集成) |
+| 13 | **真实智能体接入 — 资源与学伴共享图推荐模型** | ✅ Done |
 | 14 | **KT 知识追踪集成(课题 4.1)** | ✅ Done(PR #1 + 后端 integrated 模式) |
 | 15 | **预存 bug 修复**:Jinja 模板 default + agent 数量断言 + 右侧面板 5 处 bug | ✅ Done |
-| 16 | 学伴匹配真实算法接入(基于 learner_learner_relations) | Planned |
 | 17 | 前端右侧面板"重点 Agent"自动突出(决策引擎 + 规则补) | Planned |
 
 ---
@@ -743,7 +796,7 @@ SELECT * FROM users LIMIT 5;
 | 迁移 | Alembic |
 | 配置 | pydantic-settings |
 | 认证 | JWT (PyJWT) + bcrypt |
-| ML 推理 | PyTorch 2.12(CTR ranking + REKT) |
+| ML 推理 | PyTorch 2.12(异构图推荐 + REKT) |
 | 前端 | React 18 + TypeScript + Vite |
 | 状态管理 | Zustand |
 | 样式 | TailwindCSS |

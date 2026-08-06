@@ -1,0 +1,23 @@
+{
+  "dropout": 0.2,
+  "edge_dropout": 0.1,
+  "embedding_batch_size": 32,
+  "embedding_dim": 512,
+  "feature_dropout": 0.1,
+  "heads": 2,
+  "hidden_dim": 64,
+  "interest_iterations": 3,
+  "interest_slots": 4,
+  "negatives_per_positive": 5,
+  "num_layers": 2,
+  "output_dim": 64,
+  "pretraining_epochs": 100,
+  "pretraining_learning_rate": 0.001,
+  "pretraining_patience": 20,
+  "pretraining_weight_decay": 0.0001,
+  "task_epochs": 100,
+  "task_learning_rate": 0.001,
+  "task_seed": 42,
+  "task_weight_decay": 0.0,
+  "temperature": 0.2
+}

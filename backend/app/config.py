@@ -33,11 +33,11 @@ class LLMSettings(BaseSettings):
     provider: Literal["openai", "vllm", "glm"] = "glm"
     base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     api_key: str = "sk-xxxxxxxxxxxxxxxx"
-    model_name: str = "glm-4-flash"
+    model_name: str = "glm-5"
     max_tokens: int = 4096      # 全局默认最大输出 token 数（推理模型需设大一些）
     max_retries: int = 3
     timeout: int = 60
-    # 是否显式传 thinking extra_body。GLM-5 等推理模型默认就开启 thinking，
+    # 是否显式传 thinking extra_body。glm-5 等推理模型默认就开启 thinking，
     # 此开关仅用于对非默认行为的模型显式开启。默认 false（不传 extra_body）。
     enable_thinking: bool = False
 
@@ -82,20 +82,15 @@ class KTSettings(BaseSettings):
     fallback_to_llm: bool = True
 
 
-class ResourceRankingSettings(BaseSettings):
-    """Resource CTR ranking 配置。
-
-    注意: ResourceRankingPredictor 目前仍读 backend/config/resource_ranking_model.yaml,
-    本 Settings 暂作为对外暴露的配置入口(便于 .env 关停 / 未来对接),暂未接入 predictor。
-    """
+class GraphRecommenderSettings(BaseSettings):
+    """Configuration for the standalone heterogeneous graph recommender."""
 
     enabled: bool = True
-    config_path: str = "config/resource_ranking_model.yaml"
-    ckpt_dir: str = "algorithm/resource_recommendation/checkpoints/smart_tutor_mock_init"
-    device: str = "auto"
+    embedding_model_id: str = "BAAI/bge-small-zh-v1.5"
+    checkpoint_dir: str = "algorithm/graph_recommender/ckpt"
 
     model_config = SettingsConfigDict(
-        env_prefix="SMART_TUTOR_RESOURCE_RANKING__",
+        env_prefix="SMART_TUTOR_GRAPH_RECOMMENDER__",
         env_file=".env",
         extra="ignore",
     )
@@ -122,7 +117,7 @@ class Settings(BaseSettings):
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     trace: TraceSettings = Field(default_factory=TraceSettings)
     kt: KTSettings = Field(default_factory=KTSettings)
-    resource_ranking: ResourceRankingSettings = Field(default_factory=ResourceRankingSettings)
+    graph_recommender: GraphRecommenderSettings = Field(default_factory=GraphRecommenderSettings)
 
 
 # Singleton – reads .env and env vars directly

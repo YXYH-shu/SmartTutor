@@ -213,23 +213,23 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
   resource_recommender: {
     name: 'resource_recommender',
     displayName: '资源推荐',
-    description: '个性化学习资源推荐智能体(CTR 排序)',
-    version: '3.0',
+    description: '个性化学习资源推荐智能体(图模型排序)',
+    version: '4.0',
     icon: 'Library',
     color: 'emerald',
     llmConfig: { model: 'glm-5', temperature: 0.4, maxTokens: 4028, timeout: 180, maxRetries: 2, thinking: false },
     thinkingProcess: {
       stages: [
-        { name: 'Plan 规划', description: 'LLM 生成召回-排序-混排的整体计划(选择哪些 tool)' },
-        { name: 'Recall 召回', description: '通过 CandidateStore / SqlRetrieval / ItemCF 工具召回候选资源' },
-        { name: 'Rank 排序', description: '调用 backend/algorithm 的 CTR ranking model(model.pt)对候选打分' },
+        { name: 'Plan 规划', description: 'LLM 仅规划 SQL 召回和两种排序方式' },
+        { name: 'Recall 召回', description: '通过 SqlRetrievalTool 召回候选；缺失时使用资源全集' },
+        { name: 'Rank 排序', description: '使用异构 GAT 个性化排序，或按冻结文本向量计算资源相似度' },
         { name: 'Reflection 反思', description: 'LLM 检查推荐是否覆盖学生需求,若不足则补充召回' },
         { name: 'Summary 汇总', description: 'LLM 生成自然语言推荐文本 + 结构化资源列表' },
       ],
     },
     designNotes:
-      '已集成真实 CTR ranking 模型(课题 4.2)。LLM 通过 plan/tool calling 模式调度召回和排序工具,' +
-      '推荐结果来自真实模型打分而非 LLM 模拟。SQL 检索工具带白名单 + 黑名单 + session 级只读保护。',
+      '已集成异构图推荐模型。LLM 通过 plan/tool calling 模式调度 SQL 召回和排序工具，' +
+      '个性化结果来自图模型分数，资源相似度来自冻结文本向量。SQL 检索带白名单、黑名单和会话级只读保护。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -248,7 +248,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
       },
     },
     promptSummary:
-      '调用真实 CTR 模型打分推荐学习资源,关联知识点,提供学习建议和使用指南。',
+      '调用异构图模型个性化排序，或按文本语义相似度推荐相关学习资源。',
   },
 
   study_buddy: {
@@ -469,9 +469,9 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       format: (v) => (typeof v === 'string' ? (v.length > 40 ? `${v.slice(0, 40)}…` : v) : '-'),
     },
     {
-      key: 'resources.0.ctr_score',
-      label: 'Top CTR',
-      format: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : '无CTR'),
+      key: 'resources.0.graph_score',
+      label: '图模型分数',
+      format: (v: unknown) => (typeof v === 'number' ? v.toFixed(4) : '无图分数'),
     },
     {
       key: 'planning.recall_strategy',

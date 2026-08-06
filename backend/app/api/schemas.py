@@ -136,6 +136,38 @@ class ChatResponse(BaseModel):
     turn_id: Optional[str] = None
 
 
+class ResourceRecommendationDemoScenario(BaseModel):
+    """Read-only input context used by the resource recommendation demo."""
+
+    message: str
+    target_knowledge: str
+    difficulty: str
+
+
+class ResourceRecommendationDemoResponse(BaseModel):
+    """Full result of a direct, non-persistent resource agent run."""
+
+    scenario: ResourceRecommendationDemoScenario
+    output: dict[str, Any]
+    usage: dict[str, Any]
+    latency_ms: int
+
+
+class StudyBuddyDemoScenario(BaseModel):
+    """Read-only input context used by the study-buddy recommendation demo."""
+
+    message: str
+
+
+class StudyBuddyDemoResponse(BaseModel):
+    """Full result of a direct, non-persistent study-buddy agent run."""
+
+    scenario: StudyBuddyDemoScenario
+    output: dict[str, Any]
+    usage: dict[str, Any]
+    latency_ms: int
+
+
 class HistoryQueryParams(BaseModel):
     conversation_id: str
     before_id: Optional[str] = None

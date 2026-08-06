@@ -31,6 +31,8 @@ export function AgentInfoPanel() {
           type="button"
           onClick={close}
           className="rounded-md p-1 text-text-tertiary transition-all duration-200 hover:bg-bg-elevated hover:text-text-primary"
+          title="关闭智能体工作室"
+          aria-label="关闭智能体工作室"
         >
           <X size={16} />
         </button>
