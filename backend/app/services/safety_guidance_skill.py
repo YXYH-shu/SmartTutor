@@ -237,9 +237,11 @@ class SafetyGuidanceSkill:
         if _RISK_ENABLING_SAFE_QUERY.search(safe_query):
             focuses = "、".join(item["subject_focus"] for item in subject_options[:2])
             safe_query = f"围绕{focuses}，可以从哪些学科角度安全学习？"
-        if core_topic and not cls._topic_is_represented(core_topic, safe_query):
-            if not _RISK_ENABLING_SAFE_QUERY.search(core_topic):
-                safe_query = f"围绕{core_topic}，{safe_query}"
+        # 信任 LLM 生成的 safe_query：之前会用 bigram 重叠判断「主题是否被保留」，
+        # 但 LLM 经常正确地把「小飞机」改写成「无人机 / 小型飞行器」，bigram 不匹配
+        # 就被强行拼上原句去标点版（"围绕你好我想了解一下...，{LLM生成的safe_query}"），
+        # 反而把干净的安全问句变成了冗长、暴露原问句的拼接体。下游 schema 校验和
+        # response_assembler 仍会兜底，没必要在这里做词汇级保护。
         if any(option in {"这个主题", "相关原理", "有关风险"} for option in options):
             raise ValueError("learning options contain vague substitutes")
         preserved = list(dict.fromkeys(
@@ -318,9 +320,7 @@ class SafetyGuidanceSkill:
                 safe_query = f"围绕{core_topic or focus}，这个学科可以研究哪些关键问题？"
             if _RISK_ENABLING_SAFE_QUERY.search(safe_query):
                 safe_query = f"围绕{focus}，可以学习哪些安全原理、影响与防护？"
-            if core_topic and not cls._topic_is_represented(core_topic, safe_query):
-                if not _RISK_ENABLING_SAFE_QUERY.search(core_topic):
-                    safe_query = f"围绕{core_topic}，{safe_query}"
+            # 同上：信任 LLM 输出，不再用 bigram 检查强制拼接 core_topic。
             if len(options) < 2:
                 options = [
                     f"理解{focus}的核心概念",

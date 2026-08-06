@@ -40,6 +40,13 @@ class LLMSettings(BaseSettings):
     # 是否显式传 thinking extra_body。glm-5 等推理模型默认就开启 thinking，
     # 此开关仅用于对非默认行为的模型显式开启。默认 false（不传 extra_body）。
     enable_thinking: bool = False
+    # 全局速率限制（滑动 60s 窗口）。0 = 不限。
+    # 智谱 GLM-5 在配额触发时会返回 HTTP 425 / 429（错误码 1113），
+    # stage_executor 单轮会触发 5+ 个 agent × 多次重试，容易把限额打满。
+    # 默认 rpm=10 / tpm=40000 是相对保守的值，避免连续 3 轮对话后撞限。
+    # 通过 SMART_TUTOR_LLM__RATE_LIMIT_RPM / TPM 实时覆盖。
+    rate_limit_rpm: int = 10
+    rate_limit_tpm: int = 40000
 
 
 class AppSettings(BaseSettings):
