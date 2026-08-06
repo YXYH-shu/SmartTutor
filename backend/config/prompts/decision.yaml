@@ -5,10 +5,10 @@ llm_config:
   model: "glm-5"
   base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.2
-  max_tokens: 4028
-  timeout: 180
-  max_retries: 3
-  thinking: true
+  max_tokens: 2048
+  timeout: 60
+  max_retries: 2
+  thinking: false
 
 prompt_template: |
   你是智能教育系统的**决策中枢**，负责根据当前对话上下文决定下一步应该执行什么操作。

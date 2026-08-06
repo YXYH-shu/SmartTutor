@@ -5,10 +5,11 @@ llm_config:
   model: "glm-5"
   base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.5
-  max_tokens: 16384
-  timeout: 180
-  max_retries: 3
-  thinking: true
+  # 输出 5 阶段路径 + adaptive_rules + recommended_questions，实测 6-8k token 够。
+  max_tokens: 8192
+  timeout: 120
+  max_retries: 2
+  thinking: false
 
 prompt_template: |
   你是一个"对话式小学科学学习路径规划智能体"，你的任务是基于学生当前的学情分析结果、知识点集合、知识图谱以及《义务教育科学课程标准（2022年版）》中的"课程内容"，为学生规划一条科学、平滑、可实施、可解释的学习路径。

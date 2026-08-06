@@ -5,10 +5,15 @@ llm_config:
   model: "glm-5"
   base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.3
-  max_tokens: 16384
-  timeout: 180
-  max_retries: 3
-  thinking: true
+  # 输出 10 个字段含 knowledge_graph（15 节点 + ~30 边），实测 4-6k token 足够。
+  # 16384 会让 GLM-5 在 thinking=true 时占用 60-120s，超过 stage_executor 的
+  # 90s 上限导致超时（_log_execution 都来不及跑，DB 看不到记录）。
+  max_tokens: 8192
+  timeout: 120
+  max_retries: 2
+  # 输出是结构化 JSON（mastery_rates + knowledge_graph），不需要 reasoning。
+  # thinking=true 会让 GLM-5 先消耗几百 token 推理再产出 JSON，明显拖慢。
+  thinking: false
 
 prompt_template: |
   你是一名"对话式小学科学导学智能体"，你的任务是根据用户的初始问题、历史对话和《义务教育科学课程标准（2022年版）》中的"课程内容"，完成对学生当前科学学习状态的诊断，并输出既适合教师阅读、又便于系统结构化消费的学情分析结果。
