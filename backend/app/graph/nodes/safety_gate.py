@@ -13,6 +13,7 @@ Results are stored in state for downstream routing and agent context.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -23,6 +24,12 @@ from app.services.safety_pipeline import SafetyPipeline
 logger = logging.getLogger(__name__)
 
 _pipeline: SafetyPipeline | None = None
+_KT_STUDENT_ID_RE = re.compile(r"(?:学生|student)\s*#?\s*(\d+)", re.IGNORECASE)
+
+
+def _extract_kt_student_id(message: str) -> str | None:
+    match = _KT_STUDENT_ID_RE.search(message)
+    return match.group(1) if match else None
 
 
 def _get_pipeline() -> SafetyPipeline:
@@ -75,6 +82,11 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
             context_lines.append(f"{role}: {content}")
     conversation_context = "\n".join(context_lines[-6:])  # last 6 messages
 
+    shared_context = {**(state.get("context") or {})}
+    kt_student_id = _extract_kt_student_id(str(last_user_msg))
+    if kt_student_id:
+        shared_context["kt_student_id"] = kt_student_id
+
     try:
         pipeline = _get_pipeline()
         result = await pipeline.execute(
@@ -86,7 +98,7 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
         logger.error("[safety_gate] pipeline failed – defaulting to SAFE", exc_info=True)
         return {
             "safety_action": "SAFE",
-            "context": {**(state.get("context") or {})},
+            "context": shared_context,
         }
 
     updates: dict[str, Any] = {
@@ -94,7 +106,7 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
         "safety_context": result.safety_context,
     }
 
-    ctx = {**(state.get("context") or {})}
+    ctx = shared_context
     ctx["safety"] = result.safety_context or {}
 
     if result.action == "SAFE":
