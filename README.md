@@ -612,6 +612,24 @@ SmartTutor/
 
 ## 快速启动
 
+### 模型端点配置说明(每个 agent 独立)
+
+每个 agent 的 `model` 和 `base_url` 在各自的 prompt YAML(`backend/config/prompts/*.yaml`)里独立配置,**不读 `.env` 中的全局 LLM 配置**。这样设计是因为不同 agent 适合不同模型——决策/安全用稳健的大模型、情感识别用微调过的 9B 专用模型、内容生成用通用大模型。切换部署环境时需要批量改这些 YAML。
+
+当前维护两套环境:
+
+| 部署环境 | 主 agent(13 个通用 agent) | 主端点 | 情感 agent | 情感端点 |
+|---|---|---|---|---|
+| 云端 GLM(G203 等无 GPU 环境) | `glm-5` | `https://open.bigmodel.cn/api/coding/paas/v4` | `qwen3.5-9b-emotion` | SSH 隧道 `localhost:28111` |
+| 本地 vLLM(6403 双卡服务器) | `qwen3.5-35b-a3b` | `http://localhost:8000/v1` | `qwen3.5-9b-emotion` | `http://localhost:8001/v1` |
+
+**情感 agent 的 9B 微调模型需要单独部署**:
+
+- **云端环境**:通过 SSH 隧道转发到带 GPU 的服务器。启动方式:`bash scripts/start_emotion_tunnel.sh`(保持窗口常开)。本地端口默认 `28111`(避开 `8001` 常被占用的服务)。隧道中断时该 agent 会失败并报错,不影响其他 agent。
+- **本地 vLLM 环境**:直接用容器内第二个 vLLM 服务(端口 8001),不需要隧道。
+
+下方"方式一~四"涉及的 `.env` 全局 LLM 配置主要用于 `llm_client.py` 兜底,被 agent YAML 中的 `llm_config` 字段覆盖。
+
 ### 方式一:本地开发(默认 KT off,纯 LLM 模拟)
 
 #### 后端
@@ -710,6 +728,8 @@ npm run dev
 
 ### 方式四:Docker 部署
 
+#### 最小化部署(开发用,docker-compose)
+
 ```bash
 docker-compose up --build
 ```
@@ -718,6 +738,37 @@ docker-compose up --build
 - 前端:`http://localhost:3000`
 - 后端 API:`http://localhost:8000/docs`
 - MySQL:端口 3306
+
+#### 完整生产部署(双卡 vLLM 单镜像,参考 6403 配置)
+
+`docker/` 目录提供完整镜像构建脚本,针对带双 NVIDIA GPU 的服务器(如 6403 PowerEdge T640)。一个容器内同时跑两个 vLLM 实例 + 后端 + nginx。
+
+| 文件 | 用途 |
+|---|---|
+| `docker/Dockerfile` | 主镜像:CUDA 12.8 + vLLM 0.19.0 + FastAPI + nginx,多阶段构建 |
+| `docker/Dockerfile.platform` | 平台镜像(不含 vLLM,仅后端+前端,给外部模型端点用) |
+| `docker/build.sh` | 构建脚本,组装构建上下文(含主模型与情感模型权重路径) |
+| `docker/entrypoint.sh` | 容器入口:拉起主 vLLM@8000 + 情感 vLLM@8001 + 后端 + nginx |
+| `docker/nginx.conf` | 前端反代配置 |
+
+双卡布局(`entrypoint.sh` 默认):
+
+- **GPU0**:主模型 `Qwen3.5-35B-A3B-FP8`(bf16,~67GB),服务 13 个通用 agent @ port `8000`
+- **GPU1**:情感模型 `Qwen3.5-9B + emotion3 LoRA merge`(3 分类),专供 `emotion_analyzer` @ port `8001`
+
+镜像还内置了离线 Embedding 模型(供图推荐器使用),并在 `entrypoint.sh` 中开启 SQLite WAL 模式缓解本地大模型时延下的锁竞争。部署前需要把对应环境的 prompt YAML 端点配好(见上方"模型端点配置说明")。
+
+构建命令示例:
+
+```bash
+cd docker
+MODEL_SRC=/path/to/Qwen3.5-35B-A3B-FP8 \
+EMOTION_MODEL_SRC=/path/to/qwen3_5_9b_emotion3_lora/merged \
+bash build.sh
+docker run --gpus all -p 80:80 -p 8000:8000 -p 8001:8001 \
+  -v $(pwd)/backend/data:/app/backend/data \
+  smarttutor:latest
+```
 
 ---
 
