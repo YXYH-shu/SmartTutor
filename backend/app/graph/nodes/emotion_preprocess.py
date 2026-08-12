@@ -67,23 +67,21 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
     ctx = {**(state.get("context") or {})}
     ctx["emotion_analyzer"] = output
 
-    # 评分：情绪强度高 → 本轮重点标记 emotion_analyzer
-    intensity = output.get("intensity")
+    # 情感模型 v2 为三分类（positive/negative/neutral），不再有 intensity 字段。
+    # 强负面情绪标记为重点关注；其他不做 pre_focus 提升（保持决策权重平衡）。
+    polarity = str(output.get("emotion") or "").lower()
     pre_focus: list[str] = []
-    try:
-        if intensity is not None and float(intensity) >= 0.7:
-            pre_focus = ["emotion_analyzer"]
-    except (TypeError, ValueError):
-        logger.debug("[emotion_preprocess] intensity not numeric: %r", intensity)
+    if polarity == "negative":
+        pre_focus = ["emotion_analyzer"]
 
     logger.info(
-        "[emotion_preprocess] done – emotion=%s intensity=%s",
-        output.get("emotion"),
-        output.get("intensity"),
+        "[emotion_preprocess] done – polarity=%s reason=%s",
+        polarity,
+        (output.get("reason") or "")[:80],
     )
 
-    _trace.debug("[%s] NODE_EXIT  emotion_preprocess emotion=%s intensity=%s",
-                 _tid, output.get("emotion"), output.get("intensity"))
+    _trace.debug("[%s] NODE_EXIT  emotion_preprocess polarity=%s",
+                 _tid, polarity)
 
     updates: dict[str, Any] = {
         "context": ctx,
@@ -92,7 +90,7 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
     }
     if pre_focus:
         # 与 safety 写入的 pre_focus 合并（list 默认覆盖；safety 早于此节点，
-        # 但 emotion 只在强度高时追加，不会覆盖 safety）
+        # 但 emotion 只在强负面时追加，不会覆盖 safety）
         existing = list(state.get("pre_focus") or [])
         for a in pre_focus:
             if a not in existing:

@@ -21,6 +21,7 @@ from app.models.resource_knowledge import ResourceKnowledge
 from app.models.knowledge_knowledge import KnowledgeKnowledge
 from app.models.concept_knowledge import ConceptKnowledge
 from app.models.skill_knowledge import SkillKnowledge
+from app.models.graph_node_embedding import GraphNodeEmbedding
 
 __all__ = [
     "User",
@@ -43,4 +44,5 @@ __all__ = [
     "KnowledgeKnowledge",
     "ConceptKnowledge",
     "SkillKnowledge",
+    "GraphNodeEmbedding",
 ]

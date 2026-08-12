@@ -1,4 +1,4 @@
-"""Agent registry – auto-registers all 9 education agents.
+"""Agent registry – auto-registers all education and safety agents.
 
 Usage::
 
@@ -22,6 +22,7 @@ from app.services.agents.resource_recommender import ResourceRecommenderAgent
 from app.services.agents.study_buddy import StudyBuddyAgent
 from app.services.agents.empathy_generator import EmpathyGeneratorAgent
 from app.services.agents.content_polisher import ContentPolisherAgent
+from app.services.agents.content_corrector import ContentCorrectorAgent
 from app.services.agents.knowledge_responder import KnowledgeResponderAgent
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ _AGENT_CLASSES: list[type[BaseAgent]] = [
     StudyBuddyAgent,
     EmpathyGeneratorAgent,
     ContentPolisherAgent,
+    ContentCorrectorAgent,
     KnowledgeResponderAgent,
 ]
 
@@ -100,5 +102,6 @@ __all__ = [
     "StudyBuddyAgent",
     "EmpathyGeneratorAgent",
     "ContentPolisherAgent",
+    "ContentCorrectorAgent",
     "KnowledgeResponderAgent",
 ]

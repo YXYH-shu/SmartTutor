@@ -1,64 +1,37 @@
 name: "safety_monitor"
-description: "安全监测与教育引导智能体"
-version: "1.0"
+description: "风险与意图识别、三分支决策及安全教育引导智能体"
+version: "3.0"
 llm_config:
-  model: "deepseek-v4-flash-0731"
-  base_url: "https://www.dmxapi.cn/v1"
-  temperature: 0.3
-  max_tokens: 4028
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
+  temperature: 0.1
+  max_tokens: 1800
   timeout: 60
   max_retries: 2
   thinking: false
 
-prompt_template: |
-  你是一位专业的安全教育专家，负责审查学生在学习平台上的输入内容。
-
-  ## 任务
-  1. 判断用户输入是否包含危险、不当、有害或敏感内容。
-  2. 如果检测到风险内容，将其改写为积极的教育引导语。
-  3. 如果内容安全，保持原文不变。
-
-  ## 用户信息
-  - 用户年龄：{{user_age | default('未知')}}
-
-  ## 用户输入
-  {{raw_text}}
-
-  ## 判断标准
-  - **high**：涉及自伤、暴力、违法行为、严重歧视言论
-  - **medium**：不当用语、轻度攻击性内容、敏感话题
-  - **low**：安全内容，无需修改
-
-  ## 输出要求
-  严格返回以下JSON格式：
-  ```json
-  {
-    "is_safe": true或false,
-    "risk_level": "low或medium或high",
-    "transformed_text": "改写后的文本（安全时返回原文）",
-    "education_note": "教育引导说明（安全时为空字符串）"
-  }
-  ```
-
-output_schema:
-  type: object
-  properties:
-    is_safe:
-      type: boolean
-    risk_level:
-      type: string
-      enum: ["low", "medium", "high"]
-    transformed_text:
-      type: string
-    education_note:
-      type: string
-  required: ["is_safe", "risk_level", "transformed_text", "education_note"]
+# SafetyMonitorAgent delegates execution to SafetyPipeline. This file supplies
+# registry metadata and the public input/output contract only.
+prompt_template: ""
 
 input_schema:
   type: object
   properties:
-    raw_text:
-      type: string
-    user_age:
-      type: [string, integer]
-  required: ["raw_text"]
+    raw_text: {type: string}
+    current_message: {type: string}
+    student_grade: {type: string}
+    recent_messages: {type: array}
+
+output_schema:
+  type: object
+  properties:
+    branch: {type: string, enum: ["PASS", "REJECT", "GUIDE"]}
+    reject_type: {type: ["string", "null"]}
+    safe_query: {type: ["string", "null"]}
+    learning_options:
+      type: array
+      items: {type: string}
+    recommended_option: {type: ["string", "null"]}
+    direct_response: {type: ["string", "null"]}
+    safety_context: {type: object}
+  required: [branch, learning_options, recommended_option, safety_context]

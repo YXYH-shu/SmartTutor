@@ -14,13 +14,65 @@ import { X } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { AGENT_CONFIGS, AGENT_HIGHLIGHT_FIELDS } from '@/data/agentConfigs';
 import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
+import { ResourceRecommendationFlow } from './ResourceRecommendationFlow';
+import { StudyBuddyFlow } from './StudyBuddyFlow';
+import type { ResourceRecommendationOutput, StudyBuddyOutput } from '@/types';
 
 export function AgentDetailDrawer() {
   const selectedDetailAgent = useChatStore((s) => s.selectedDetailAgent);
   const setSelectedDetailAgent = useChatStore((s) => s.setSelectedDetailAgent);
   const agentTrace = useChatStore((s) => s.agentTrace);
+  const messages = useChatStore((s) => s.messages);
+  const currentAgent = useChatStore((s) => s.currentAgent);
+  const currentTurn = useChatStore((s) => s.currentTurn);
 
   if (!selectedDetailAgent) return null;
+  if (selectedDetailAgent === 'resource_recommender') {
+    const liveOutput = parseAgentContent(agentTrace.resource_recommender?.content);
+    const currentMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content;
+    const isRunning =
+      !liveOutput &&
+      (currentAgent === 'resource_recommender' ||
+        currentTurn?.agentTimeline.some(
+          (item) => item.agentName === 'resource_recommender' && item.status === 'running',
+        ) === true);
+
+    return (
+      <ResourceRecommendationFlow
+        onBack={() => setSelectedDetailAgent(null)}
+        onClose={() => setSelectedDetailAgent(null)}
+        output={liveOutput as ResourceRecommendationOutput | null}
+        message={currentMessage}
+        isRunning={isRunning}
+      />
+    );
+  }
+
+  if (selectedDetailAgent === 'study_buddy') {
+    const liveOutput = parseAgentContent(agentTrace.study_buddy?.content);
+    const currentMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content;
+    const isRunning =
+      !liveOutput &&
+      (currentAgent === 'study_buddy' ||
+        currentTurn?.agentTimeline.some(
+          (item) => item.agentName === 'study_buddy' && item.status === 'running',
+        ) === true);
+
+    return (
+      <StudyBuddyFlow
+        onBack={() => setSelectedDetailAgent(null)}
+        onClose={() => setSelectedDetailAgent(null)}
+        output={liveOutput as StudyBuddyOutput | null}
+        message={currentMessage}
+        isRunning={isRunning}
+      />
+    );
+  }
+
   const name = selectedDetailAgent;
   const cfg = AGENT_CONFIGS[name];
   if (!cfg) return null;

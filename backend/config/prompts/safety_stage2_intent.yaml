@@ -2,8 +2,8 @@ name: "safety_stage2_intent"
 description: "安全管线第2阶段：意图识别"
 version: "2.0"
 llm_config:
-  model: "deepseek-v4-flash-0731"
-  base_url: "https://www.dmxapi.cn/v1"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.3
   max_tokens: 4028
   timeout: 60

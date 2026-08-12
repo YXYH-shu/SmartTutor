@@ -33,9 +33,11 @@ jsonschema==4.26.0
 # YAML config
 pyyaml==6.0.3
 
-# Resource CTR ranking model (online inference only; parquet tools stay out of app runtime)
+# Graph recommender runtime
 numpy==2.5.1
 torch==2.12.1
+torch-geometric>=2.5,<3.0
+sentence-transformers>=3.0,<6.0
 
 # Auth
 PyJWT==2.10.1

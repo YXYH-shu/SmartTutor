@@ -131,4 +131,15 @@ async def agent_node(state: TutorState) -> dict[str, Any]:
 
     logger.info("[agent_node] %s done – latency=%dms", agent_name, result.get("latency_ms", 0))
     _trace.debug("[%s] NODE_EXIT  agent_node agent=%s", _tid, agent_name)
-    return {"context": ctx, "next_agents": next_agents}
+    updates: dict[str, Any] = {"context": ctx, "next_agents": next_agents}
+    if not next_agents and agent_name in {
+        "knowledge_responder",
+        "content_polisher",
+        "empathy_generator",
+    }:
+        from app.graph.nodes.stage_executor import _extract_text
+
+        final_response = _extract_text(result["output"])
+        if final_response:
+            updates["final_response"] = final_response
+    return updates

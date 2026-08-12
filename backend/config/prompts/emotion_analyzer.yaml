@@ -1,65 +1,50 @@
 name: "emotion_analyzer"
-description: "情感分析与学习状态评估智能体"
-version: "1.0"
+description: "情感分析智能体（微调 Qwen3.5-9B 三分类专精模型，远程 vLLM 推理）"
+version: "2.0"
 llm_config:
-  model: "deepseek-v4-flash-0731"
-  base_url: "https://www.dmxapi.cn/v1"
-  temperature: 0.4
-  max_tokens: 4028
+  # 通过 SSH 隧道转发到 6403 服务器的 vLLM 实例（容器内 172.18.0.2:8001）。
+  # 启动方式：bash scripts/start_emotion_tunnel.sh（保持窗口常开）。
+  # 本地端口默认 28111（避开 scholartrace-mc 等占用 8001 的服务）。
+  # 隧道中断时该 agent 会失败并报错；不会影响其他 agent。
+  model: "qwen3.5-9b-emotion"
+  base_url: "http://localhost:28111/v1"
+  api_key: "not-needed"
+  temperature: 0
+  max_tokens: 256
   timeout: 60
   max_retries: 2
   thinking: false
 
+# 模板与微调训练格式对齐（单条 user 消息，3 分类输出 positive/negative/neutral）。
+# message_history 末条通常与 current_message 重复，用 loop.last 条件去重。
 prompt_template: |
-  你是一位擅长情感分析的教育心理学专家，负责分析学生的学习情感状态。
+  你是一名教育场景下的学生情感分析专家。给定一段师生对话，你需要判断【最后一句学生发言】所表达的情感极性，并简要说明你的判断依据。
+  情感极性只能从以下 3 类中选择(输出英文标签)：
+  - positive(积极：高兴、满足、自信等)
+  - negative(消极：悲伤、焦虑、烦躁、抵触等)
+  - neutral(中性：平静、客观陈述)
+  请严格以 JSON 格式输出，不要输出多余内容：
+  {"emotion": "<positive|negative|neutral>", "reason": "<中文判断依据>"}
 
-  ## 任务
-  根据学生的最近对话历史和当前输入，判断其情感状态、学习意愿和趋势。
+  【对话】
+  {% for msg in message_history -%}
+  {% if not (loop.last and msg.role == 'human' and msg.content == current_message) -%}
+  {{ '学生' if msg.role == 'human' else '老师' }}：{{ msg.content }}
+  {% endif -%}
+  {% endfor -%}
+  学生：{{ current_message }}
 
-  ## 最近对话历史
-  {% for msg in message_history %}
-  - [{{msg.role}}]: {{msg.content}}
-  {% endfor %}
-
-  ## 当前输入
-  {{current_message}}
-
-  ## 分析维度
-  1. **emotion**：当前主要情绪（如：焦虑、兴奋、困惑、沮丧、平静、好奇、厌倦）
-  2. **intensity**：情绪强度 0-1（0=平静，1=极端）
-  3. **trend**：情绪变化趋势
-  4. **learning_intent**：学习意愿评估
-  5. **suggested_response_tone**：建议的回复语气风格
-
-  ## 输出要求
-  严格返回以下JSON格式：
-  ```json
-  {
-    "emotion": "情绪名称",
-    "intensity": 0.0到1.0之间的数值,
-    "trend": "improving或stable或declining",
-    "learning_intent": "学习意愿描述",
-    "suggested_response_tone": "建议的回复语气"
-  }
-  ```
+  请判断上面【最后一句学生发言】的情感极性(positive/negative/neutral)，并给出依据。
 
 output_schema:
   type: object
   properties:
     emotion:
       type: string
-    intensity:
-      type: number
-      minimum: 0
-      maximum: 1
-    trend:
+      enum: ["positive", "negative", "neutral"]
+    reason:
       type: string
-      enum: ["improving", "stable", "declining"]
-    learning_intent:
-      type: string
-    suggested_response_tone:
-      type: string
-  required: ["emotion", "intensity", "trend", "learning_intent", "suggested_response_tone"]
+  required: ["emotion", "reason"]
 
 input_schema:
   type: object

@@ -83,9 +83,9 @@ export interface Message {
 }
 
 export interface EmotionState {
-  emotion: string;
-  intensity: number;
-  trend?: string;
+  // v2: 三分类微调模型输出（positive/negative/neutral + 中文依据）
+  emotion: 'positive' | 'negative' | 'neutral' | string;
+  reason?: string;
 }
 
 /* ── SSE Stream ───────────────────────────────────────────────── */
@@ -141,6 +141,12 @@ export interface KtSummary {
   metrics?: Record<string, unknown>;
 }
 
+export interface SafetyGuide {
+  safeQuery: string;
+  options: string[];
+  recommendedOption?: string;
+}
+
 // 轮次级聚合数据(一个对话轮 = 用户发一条消息 + AI 完整回复)
 export interface TurnData {
   turnId: string;
@@ -163,9 +169,141 @@ export interface StreamDonePayload {
   touchedNodes?: KnowledgeNode[];
   trajectory?: string[];
   ktSummary?: KtSummary;
+  safetyGuide?: SafetyGuide;
+}
+
+/* ── Resource recommendation flow ─────────────────────────────── */
+
+export interface ResourceRecommendationPlan {
+  need_tool?: boolean;
+  target_knowledge?: string[];
+  target_count?: number;
+  recall_strategy?: string;
+  ranking_criteria?: string[];
+  thought?: string;
+}
+
+export interface ResourceRecommendationToolTrace {
+  tool: string;
+  status: string;
+  count?: number;
+  input?: Record<string, unknown>;
+  reason?: string;
+  requested_schema?: string;
+  effective_schema?: string;
+  requested_num?: number | string | null;
+  effective_num?: number;
+  num_policy?: string;
+  candidate_source?: string;
+  candidate_count?: number;
+  ranking_backend?: string;
+  fallback_reason?: string;
+  similarity_status?: string;
+}
+
+export interface ResourceRecommendationReflection {
+  coverage_score?: number;
+  difficulty_match?: number;
+  diversity_score?: number;
+  passed?: boolean;
+  forced_pass?: boolean;
+  issues?: string[];
+  suggestion?: string;
+  improvement_suggestion?: string;
+}
+
+export interface RecommendedResource {
+  id: string;
+  title: string;
+  type?: string;
+  url?: string;
+  difficulty?: string;
+  time_needed_min?: number;
+  knowledge_tags?: string[];
+  recommend_reason?: string;
+  graph_score?: number;
+  similarity_score?: number;
+  similarity_reference_id?: string;
+  similarity_reference_title?: string;
+  rank?: number;
+}
+
+export interface ResourceRecommendationOutput {
+  recommendation_text?: string;
+  planning?: ResourceRecommendationPlan;
+  resources?: RecommendedResource[];
+  reflection?: ResourceRecommendationReflection;
+  tool_trace?: ResourceRecommendationToolTrace[];
+  plan_history?: ResourceRecommendationPlan[];
+  reflection_history?: ResourceRecommendationReflection[];
+  [key: string]: unknown;
 }
 
 /* ── Pagination ───────────────────────────────────────────────── */
+
+export interface StudyBuddyPlan {
+  need_tool?: boolean;
+  target_count?: number;
+  recall_strategy?: string;
+  ranking_criteria?: string[];
+  thought?: string;
+}
+
+export interface StudyBuddyToolTrace {
+  tool: string;
+  status: string;
+  count?: number;
+  input?: Record<string, unknown>;
+  reason?: string;
+  requested_schema?: string;
+  effective_schema?: string;
+  requested_num?: number | string | null;
+  effective_num?: number;
+  num_policy?: string;
+  candidate_source?: string;
+  candidate_count?: number;
+  eligible_candidate_count?: number;
+  ranking_backend?: string;
+  fallback_reason?: string;
+}
+
+export interface StudyBuddyReflection {
+  coverage_score?: number;
+  compatibility_score?: number;
+  diversity_score?: number;
+  passed?: boolean;
+  forced_pass?: boolean;
+  issues?: string[];
+  suggestion?: string;
+  improvement_suggestion?: string;
+}
+
+export interface RecommendedBuddy {
+  user_id: string;
+  nickname?: string;
+  complement_score?: number;
+  graph_score?: number;
+  similarity_score?: number;
+  dimension_scores?: Record<string, number>;
+  rank?: number;
+  strengths?: string[];
+  weaknesses?: string[];
+  contact_suggestion?: string;
+  collaboration_mode?: string;
+}
+
+export interface StudyBuddyOutput {
+  recommendation_text?: string;
+  planning?: StudyBuddyPlan;
+  matching_plan?: Record<string, unknown>;
+  buddies?: RecommendedBuddy[];
+  group_suggestion?: Record<string, unknown>;
+  reflection?: StudyBuddyReflection;
+  tool_trace?: StudyBuddyToolTrace[];
+  plan_history?: StudyBuddyPlan[];
+  reflection_history?: StudyBuddyReflection[];
+  [key: string]: unknown;
+}
 
 export interface PaginatedResponse<T> {
   items: T[];

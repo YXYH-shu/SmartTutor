@@ -33,13 +33,20 @@ class LLMSettings(BaseSettings):
     provider: Literal["openai", "vllm", "glm"] = "glm"
     base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     api_key: str = "sk-xxxxxxxxxxxxxxxx"
-    model_name: str = "glm-4-flash"
+    model_name: str = "glm-5"
     max_tokens: int = 4096      # 全局默认最大输出 token 数（推理模型需设大一些）
     max_retries: int = 3
     timeout: int = 60
-    # 是否显式传 thinking extra_body。GLM-5 等推理模型默认就开启 thinking，
+    # 是否显式传 thinking extra_body。glm-5 等推理模型默认就开启 thinking，
     # 此开关仅用于对非默认行为的模型显式开启。默认 false（不传 extra_body）。
     enable_thinking: bool = False
+    # 全局速率限制（滑动 60s 窗口）。0 = 不限。
+    # 智谱 GLM-5 在配额触发时会返回 HTTP 425 / 429（错误码 1113），
+    # stage_executor 单轮会触发 5+ 个 agent × 多次重试，容易把限额打满。
+    # 默认 rpm=10 / tpm=40000 是相对保守的值，避免连续 3 轮对话后撞限。
+    # 通过 SMART_TUTOR_LLM__RATE_LIMIT_RPM / TPM 实时覆盖。
+    rate_limit_rpm: int = 10
+    rate_limit_tpm: int = 40000
 
 
 class AppSettings(BaseSettings):
@@ -95,20 +102,28 @@ class LPPSettings(BaseSettings):
     seed: int = 42
 
 
-class ResourceRankingSettings(BaseSettings):
-    """Resource CTR ranking 配置。
+class StageSettings(BaseSettings):
+    """stage_executor 的超时预算（秒）。
 
-    注意: ResourceRankingPredictor 目前仍读 backend/config/resource_ranking_model.yaml,
-    本 Settings 暂作为对外暴露的配置入口(便于 .env 关停 / 未来对接),暂未接入 predictor。
+    智谱 GLM-5 在 coding 端点单次调用约 13-30s，多个 agent 串行后总预算
+    必须放宽。所有字段可通过 .env 覆盖。
     """
 
+    # 整个 stage（一轮所有 agent）的总预算。
+    total_timeout_seconds: float = 240.0
+    # 给 knowledge_responder 至少保留多少秒（兜底，防止它没机会运行）。
+    knowledge_reserve_seconds: float = 60.0
+
+
+class GraphRecommenderSettings(BaseSettings):
+    """Configuration for the standalone heterogeneous graph recommender."""
+
     enabled: bool = True
-    config_path: str = "config/resource_ranking_model.yaml"
-    ckpt_dir: str = "algorithm/resource_recommendation/checkpoints/smart_tutor_mock_init"
-    device: str = "auto"
+    embedding_model_id: str = "BAAI/bge-small-zh-v1.5"
+    checkpoint_dir: str = "algorithm/graph_recommender/ckpt"
 
     model_config = SettingsConfigDict(
-        env_prefix="SMART_TUTOR_RESOURCE_RANKING__",
+        env_prefix="SMART_TUTOR_GRAPH_RECOMMENDER__",
         env_file=".env",
         extra="ignore",
     )
@@ -135,8 +150,9 @@ class Settings(BaseSettings):
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     trace: TraceSettings = Field(default_factory=TraceSettings)
     kt: KTSettings = Field(default_factory=KTSettings)
+    graph_recommender: GraphRecommenderSettings = Field(default_factory=GraphRecommenderSettings)
     lpp: LPPSettings = Field(default_factory=LPPSettings)
-    resource_ranking: ResourceRankingSettings = Field(default_factory=ResourceRankingSettings)
+    stage: StageSettings = Field(default_factory=StageSettings)
 
 
 # Singleton – reads .env and env vars directly

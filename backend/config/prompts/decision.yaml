@@ -2,13 +2,13 @@ name: "decision"
 description: "智能教育系统决策中枢"
 version: "2.0"
 llm_config:
-  model: "glm-5.2"
-  base_url: "https://www.dmxapi.cn/v1"
+  model: "glm-5"
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
   temperature: 0.2
-  max_tokens: 4028
-  timeout: 180
-  max_retries: 3
-  thinking: true
+  max_tokens: 2048
+  timeout: 60
+  max_retries: 2
+  thinking: false
 
 prompt_template: |
   你是智能教育系统的**决策中枢**，负责根据当前对话上下文决定下一步应该执行什么操作。
@@ -31,8 +31,8 @@ prompt_template: |
   - 当前阶段: {{current_stage | default('无')}}
   - 阶段内执行次数: {{stage_counter | default(0)}}
   - 是否为当前流程的最后阶段: {{'是' if is_last_stage else '否'}}
-  - 用户情感: {{latest_emotion | default('未知')}}
-  - 情感强度: {{emotion_intensity | default('未知')}}
+  - 用户情感依据: {{latest_emotion | default('未知')}}
+  - 情感极性(positive/negative/neutral): {{emotion_polarity | default('未知')}}
 
   ## 最近对话（最近5轮）
   {% for msg in recent_messages | default([]) %}

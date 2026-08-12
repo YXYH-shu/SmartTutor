@@ -5,6 +5,7 @@ Features:
 - Exponential-backoff retry
 - JSON response mode with parse-tolerant fallback
 - jsonschema validation with LLM-assisted auto-repair
+- Global sliding-window rate limiter (RPM + TPM), configurable via settings
 """
 
 from __future__ import annotations
@@ -22,6 +23,75 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class _SlidingWindowLimiter:
+    """进程内滑动 60 秒窗口限流器，全局共享。
+
+    每次 acquire 前检查最近 60 秒的请求数和 token 累计，超额则 sleep 到最早
+    一次事件滑出窗口。token 用 max_tokens 估算（保守上界）。
+    """
+
+    def __init__(self, rpm: int, tpm: int) -> None:
+        self.rpm = max(0, int(rpm))
+        self.tpm = max(0, int(tpm))
+        self._events: list[tuple[float, int]] = []
+        self._lock = asyncio.Lock()
+
+    def _purge(self, now: float) -> None:
+        cutoff = now - 60.0
+        self._events = [e for e in self._events if e[0] > cutoff]
+
+    async def acquire(self, expected_tokens: int) -> None:
+        if self.rpm == 0 and self.tpm == 0:
+            return
+        expected_tokens = max(0, int(expected_tokens))
+        if self.tpm and expected_tokens > self.tpm:
+            logger.warning(
+                "Estimated tokens %d exceed the configured TPM budget %d; "
+                "capping the limiter reservation to avoid an impossible wait",
+                expected_tokens,
+                self.tpm,
+            )
+            expected_tokens = self.tpm
+        # 上界为 60s（窗口宽度），避免空窗口时无限等
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                self._purge(now)
+                rpm_ok = self.rpm == 0 or len(self._events) < self.rpm
+                used_tokens = sum(e[1] for e in self._events)
+                tpm_ok = self.tpm == 0 or used_tokens + expected_tokens <= self.tpm
+                if rpm_ok and tpm_ok:
+                    self._events.append((now, expected_tokens))
+                    return
+                # 计算还要等多久：取最早事件 + 60s
+                wait = max(0.0, self._events[0][0] + 60.0 - now) if self._events else 0.0
+            if wait <= 0:
+                # 窗口已空但 tpm 仍超（罕见），等 1s 重试
+                wait = 1.0
+            logger.info(
+                "LLM rate limit (rpm=%d/%d, tpm=%d+%d/%d) – sleeping %.1fs",
+                len(self._events), self.rpm, used_tokens, expected_tokens, self.tpm, wait,
+            )
+            await asyncio.sleep(wait)
+
+    def reconfigure(self, rpm: int, tpm: int) -> None:
+        self.rpm = max(0, int(rpm))
+        self.tpm = max(0, int(tpm))
+
+
+_GLOBAL_LIMITER: _SlidingWindowLimiter | None = None
+
+
+def _get_global_limiter() -> _SlidingWindowLimiter:
+    global _GLOBAL_LIMITER
+    if _GLOBAL_LIMITER is None:
+        _GLOBAL_LIMITER = _SlidingWindowLimiter(
+            settings.llm.rate_limit_rpm,
+            settings.llm.rate_limit_tpm,
+        )
+    return _GLOBAL_LIMITER
 
 
 class LLMClient:
@@ -45,6 +115,7 @@ class LLMClient:
         )
         self._default_model = model or settings.llm.model_name
         self._default_max_tokens = max_tokens if max_tokens is not None else settings.llm.max_tokens
+        self._max_retries = max_retries if max_retries is not None else settings.llm.max_retries
 
     # ------------------------------------------------------------------
     # Core completion
@@ -84,24 +155,65 @@ class LLMClient:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        # thinking 显式开启时才传 extra_body。GLM-5 默认就会 reasoning，
-        # 不需要额外参数；只有非默认推理模型需要显式开启时才传。
-        if thinking and settings.llm.enable_thinking:
+        # thinking extra_body 因后端而异：
+        # - Qwen3 系列在 vLLM 上默认会先 reasoning 几百 token，必须用
+        #   chat_template_kwargs.enable_thinking=False 才能拿到干净 JSON
+        # - GLM-5 默认就 reasoning，不传 extra_body；只有显式 thinking=True
+        #   且全局 enable_thinking=True 时才传 thinking.enabled
+        _model = (model or self._default_model or "").lower()
+        _base = str(getattr(self._client, "base_url", "") or "")
+        _is_qwen3_vllm = _model.startswith("qwen3") and (
+            "localhost" in _base or "127.0.0.1" in _base
+        )
+        if _is_qwen3_vllm:
+            kwargs["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": bool(thinking)}
+            }
+        elif thinking and settings.llm.enable_thinking:
             kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+        # 全局限流：估算本轮 token 用量（prompt 长度近似 + max_tokens），
+        # 触顶则等到最早事件滑出 60s 窗口。每次进入都重新读取 settings，
+        # 这样改 .env / pydantic-settings 后立即生效。
+        limiter = _get_global_limiter()
+        limiter.reconfigure(settings.llm.rate_limit_rpm, settings.llm.rate_limit_tpm)
+        prompt_chars = sum(len(m["content"]) for m in messages)
+        expected = int(_max_tokens) + prompt_chars // 2
+        logger.debug(
+            "LLM limiter pre-acquire: rpm=%d tpm=%d events=%d expected_tokens=%d",
+            limiter.rpm, limiter.tpm, len(limiter._events), expected,
+        )
+        await limiter.acquire(expected)
 
         last_exc: Exception | None = None
         used_json_mode = json_mode  # track whether we already tried without it
         retried_without_thinking = False
 
-        for attempt in range(1, settings.llm.max_retries + 1):
+        total_attempts = max(1, self._max_retries + 1)
+        for attempt in range(1, total_attempts + 1):
             t0 = time.perf_counter()
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except Exception as exc:
                 last_exc = exc
+                status_code = getattr(exc, "status_code", None)
+                if status_code in (401, 403):
+                    raise RuntimeError(
+                        "GLM 认证失败：API Key 无效或已过期，请更新 backend/.env"
+                    ) from exc
+                # Content filters commonly use HTTP 400.  Detect them before
+                # the generic request-error branch so the UI and logs do not
+                # incorrectly report a model/configuration problem.
                 if _is_content_filter_error(exc):
                     logger.warning("LLM content filter triggered (non-retryable): %s", exc)
-                    raise RuntimeError(f"LLM content filter blocked the request: {exc}") from exc
+                    raise RuntimeError("LLM 内容安全过滤已拦截本次请求") from exc
+                if status_code in (400, 404, 422):
+                    logger.error("LLM request rejected (HTTP %s): %s", status_code, exc)
+                    raise RuntimeError(
+                        f"LLM 服务拒绝了本次请求（HTTP {status_code}），请查看后端日志中的服务端错误码"
+                    ) from exc
+                if attempt >= total_attempts:
+                    break
                 wait = 2 ** attempt * 0.5
                 logger.warning("LLM request failed (attempt %d): %s – retry in %.1fs", attempt, exc, wait)
                 await asyncio.sleep(wait)
@@ -178,7 +290,7 @@ class LLMClient:
             return {"content": content, "usage": usage, "latency_ms": latency_ms}
 
         # All retries exhausted
-        raise RuntimeError(f"LLM request failed after {settings.llm.max_retries} attempts") from last_exc
+        raise RuntimeError(f"LLM request failed after {total_attempts} attempts") from last_exc
 
     # ------------------------------------------------------------------
     # JSON schema validation with auto-repair
