@@ -65,7 +65,7 @@ def _project_question(question: dict[str, Any]) -> dict[str, Any]:
 def build_response_learning_plan_context(
     learning_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    """Keep LPP explanations and the fixed P1-P5 questions without duplicates."""
+    """Keep LPP explanations and the fixed P1-P5 knowledge-point path."""
     projected: dict[str, Any] = {}
     for field in (
         "planning_rationale",
@@ -91,14 +91,19 @@ def build_response_learning_plan_context(
             if triggers.get(field) not in (None, "", [], {})
         }
 
-    questions = [
-        question
-        for question in (learning_plan.get("recommended_questions") or [])
-        if isinstance(question, dict)
+    knowledge_points = [
+        point
+        for point in (learning_plan.get("recommended_knowledge_points") or [])
+        if isinstance(point, dict)
     ]
-    questions.sort(key=lambda question: question.get("order", 999))
-    projected["recommended_questions"] = [
-        _project_question(question) for question in questions[:5]
+    knowledge_points.sort(key=lambda point: point.get("order", 999))
+    projected["recommended_knowledge_points"] = [
+        {
+            field: copy.deepcopy(point[field])
+            for field in ("order", "knowledge_point_id", "knowledge_point_name")
+            if field in point
+        }
+        for point in knowledge_points[:5]
     ]
     return projected
 

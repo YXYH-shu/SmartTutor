@@ -24,6 +24,18 @@ NON_FOCUS_AGENTS = {"knowledge_responder"}
 _decision_engine: DecisionEngine | None = None
 
 
+def _find_stage_matching_agents(engine: DecisionEngine, workflow: str, agents: list[str]) -> dict[str, Any] | None:
+    """Resolve a stale/mistyped stage id from the requested agent sequence."""
+    requested = {agent for agent in agents if isinstance(agent, str) and agent}
+    if not requested:
+        return None
+    for stage in engine.workflows.get("workflows", {}).get(workflow, {}).get("stages", []):
+        configured = set(stage.get("agents", []))
+        if requested.issubset(configured):
+            return stage
+    return None
+
+
 def _get_engine() -> DecisionEngine:
     global _decision_engine
     if _decision_engine is None:
@@ -100,9 +112,21 @@ async def decision_node(state: TutorState) -> dict[str, Any]:
             stage = engine.get_stage(target_wf, target_stage_id)
         else:
             stage = engine.get_first_stage(target_wf)
+        if stage is None:
+            stage = _find_stage_matching_agents(engine, target_wf, agent_seq)
+            if stage:
+                logger.warning(
+                    "[decision_node] resolved unknown stage=%s to %s.%s from agent_sequence",
+                    target_stage_id,
+                    target_wf,
+                    stage["id"],
+                )
         if stage:
             updates["current_stage"] = stage["id"]
-            updates["next_agents"] = stage["agents"]
+            # An explicit path-planning request must not be replaced by the
+            # target stage's generic teaching queue (which omits learning_path).
+            if "learning_path" not in agent_seq:
+                updates["next_agents"] = stage["agents"]
             updates["stage_counter"] = 0
         else:
             logger.error("[decision_node] switch_stage failed: no stage found for wf=%s stage=%s",

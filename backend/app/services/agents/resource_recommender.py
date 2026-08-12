@@ -16,6 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from jinja2 import BaseLoader, Environment, StrictUndefined
 
 from app.services.agents.base_agent import BaseAgent
+from app.services.response_context import (
+    build_response_diagnosis_context,
+    build_response_profile_context,
+)
 
 logger = logging.getLogger(__name__)
 _jinja_env = Environment(loader=BaseLoader(), undefined=StrictUndefined)
@@ -41,6 +45,25 @@ class ResourceRecommenderAgent(BaseAgent):
     """Lightweight orchestration shell for future recommendation logic."""
 
     config_file = "resource_recommender"
+
+    async def enrich_input(self, input_data: dict, context: dict) -> dict:
+        """Remove verbose KT and profile payloads before any planning prompt."""
+        enriched = await super().enrich_input(input_data, context)
+        diagnosis = enriched.get("diagnosis_result")
+        if not isinstance(diagnosis, dict):
+            diagnosis = enriched.get("cognitive_diagnosis")
+        diagnosis_context = None
+        if isinstance(diagnosis, dict):
+            diagnosis_context = build_response_diagnosis_context(diagnosis)
+            enriched["diagnosis_result"] = diagnosis_context
+
+        profile = enriched.get("user_profile")
+        if isinstance(profile, dict):
+            enriched["user_profile"] = build_response_profile_context(
+                profile,
+                diagnosis_context,
+            )
+        return enriched
 
     async def execute(
         self,

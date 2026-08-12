@@ -108,6 +108,37 @@ def _ensure_kt_path() -> None:
     logger.info("KT skill path initialized: %s", abs_path)
 
 
+_MAX_SELECTED_KNOWLEDGE_POINTS = 18
+
+
+def _selected_skill_ids(raw: dict[str, Any]) -> list[str]:
+    """Read the original skill's relevance-ranked Top-18 IDs in order."""
+    analysis = raw.get("llm_analysis")
+    selected = (
+        analysis.get("selected_knowledge_points")
+        if isinstance(analysis, dict)
+        else None
+    )
+    if not isinstance(selected, list):
+        return []
+
+    skill_ids: list[str] = []
+    seen: set[str] = set()
+    for item in selected:
+        if not isinstance(item, dict):
+            continue
+        skill_id = item.get("source_skill_id", item.get("skill_id"))
+        if skill_id is None:
+            continue
+        normalized = str(skill_id).strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            skill_ids.append(normalized)
+        if len(skill_ids) >= _MAX_SELECTED_KNOWLEDGE_POINTS:
+            break
+    return skill_ids
+
+
 def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
     """把 KTPredictResponse 输出转成 cognitive_diagnosis agent 期望的 schema。
 
@@ -118,7 +149,29 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
     - diagnosis_source: "kt_rekt"  (标记数据来源,LLM 不可改写)
     - metrics, model_info, llm_analysis: KT 原始字段,供下游/前端展示
     """
-    predictions = raw.get("predictions", []) or []
+    predictions = [
+        prediction
+        for prediction in (raw.get("predictions", []) or [])
+        if isinstance(prediction, dict)
+    ]
+    selected_ids = _selected_skill_ids(raw)
+    if selected_ids:
+        predictions_by_skill_id = {
+            str((prediction.get("target") or {}).get("skill_id", "")): prediction
+            for prediction in predictions
+        }
+        predictions = [
+            predictions_by_skill_id[skill_id]
+            for skill_id in selected_ids
+            if skill_id in predictions_by_skill_id
+        ]
+    else:
+        logger.warning(
+            "KT result did not include skill-selected knowledge points; "
+            "using a bounded %d-item fallback",
+            _MAX_SELECTED_KNOWLEDGE_POINTS,
+        )
+        predictions = predictions[:_MAX_SELECTED_KNOWLEDGE_POINTS]
     knowledge_states: list[dict[str, Any]] = []
     mastery_rates: dict[str, float] = {}
     weak_points: list[dict[str, Any]] = []
@@ -328,7 +381,6 @@ async def run_kt_for_student(
             str(student_id),
             "--device",
             settings.kt.device,
-            "--disable-analysis-report",
         ]
         raw_targets = targets or settings.kt.default_targets
         if raw_targets:

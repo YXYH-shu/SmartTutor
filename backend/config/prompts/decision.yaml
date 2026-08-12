@@ -47,6 +47,9 @@ prompt_template: |
      - 用户明确表达想找人一起学/学伴/同伴 → switch_stage 到 collaborative_learning
      - 用户主动要求复习/测验/考试 → switch_stage 到 review_assessment
      - 用户表达学习新主题的意愿（如讲解某个知识点）→ switch_stage 到 adaptive_learning 的 teaching 阶段
+     - 用户明确要求“学习路径规划/学习计划/固定5道递进练习题”时，必须将 agent_sequence 设置为
+       ["cognitive_diagnosis", "learning_path", "knowledge_responder"]。
+       如果切换到 onboarding，target_stage 必须填写 "diagnosis_and_plan"（不是 diagnosis_planning）。
   3. **adaptive_learning**: 默认主流程，适合大多数学习场景
      - teaching → comprehension_check 循环
      - 如果当前在 teaching 阶段且刚执行完，下一个应该是 comprehension_check
