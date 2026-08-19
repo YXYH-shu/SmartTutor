@@ -116,6 +116,7 @@ _LPP_PROMPT_QUESTION_FIELDS = (
 )
 
 _LPP_PROMPT_KNOWLEDGE_FIELDS = (
+    "order",
     "knowledge_point_id",
     "knowledge_point_name",
     "skill_id",
@@ -211,9 +212,11 @@ def _prompt_question(question: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_lpp_prompt_context(result: dict[str, Any]) -> dict[str, Any]:
-    """Project complete LPP output to immutable P1-P5 facts and explanations."""
+    """Project only immutable P1-P5 knowledge-point facts to the LLM."""
     target = result.get("target") or {}
-    projected_target = _prompt_question(target) if isinstance(target, dict) else {}
+    projected_target = {
+        "knowledge_points": _prompt_knowledge_points(target.get("knowledge_points"))
+    } if isinstance(target, dict) else {}
     for field in (
         "baseline_correctness_probability",
         "planned_correctness_probability",
@@ -222,41 +225,29 @@ def build_lpp_prompt_context(result: dict[str, Any]) -> dict[str, Any]:
         if isinstance(target, dict) and field in target:
             projected_target[field] = target[field]
 
-    questions = [
-        _prompt_question(question)
-        for question in ((result.get("recommendation") or {}).get("questions") or [])
-        if isinstance(question, dict)
-    ]
-    plan_items = [
-        {
-            field: item[field]
-            for field in ("priority", "question_id", "purpose_and_effect")
-            if field in item
-        }
-        for item in (result.get("plan_items") or [])
-        if isinstance(item, dict)
-    ]
+    knowledge_points = _prompt_knowledge_points(
+        (result.get("recommendation") or {}).get("knowledge_points") or []
+    )
     return {
         "student_id": str(result.get("student_id") or ""),
         "target": projected_target,
-        "recommendation": {"count": len(questions), "questions": questions},
-        "plan_items": plan_items,
+        "recommendation": {
+            "count": len(knowledge_points),
+            "knowledge_points": knowledge_points,
+        },
     }
 
 
 def lpp_prompt_skill_ids(result: dict[str, Any]) -> set[str]:
-    """Return skill identifiers referenced by the fixed P1-P5 questions."""
+    """Return skill identifiers referenced by the fixed P1-P5 knowledge path."""
     skill_ids: set[str] = set()
-    questions = (result.get("recommendation") or {}).get("questions") or []
-    for question in questions:
-        if not isinstance(question, dict):
+    knowledge_points = (result.get("recommendation") or {}).get("knowledge_points") or []
+    for point in knowledge_points:
+        if not isinstance(point, dict):
             continue
-        for point in question.get("knowledge_points") or []:
-            if not isinstance(point, dict):
-                continue
-            value = point.get("knowledge_point_id") or point.get("skill_id")
-            if value not in (None, ""):
-                skill_ids.add(_prompt_skill_key(value))
+        value = point.get("knowledge_point_id") or point.get("skill_id")
+        if value not in (None, ""):
+            skill_ids.add(_prompt_skill_key(value))
     return skill_ids
 
 
@@ -302,86 +293,59 @@ def validate_lpp_result(result: dict[str, Any]) -> None:
         raise ValueError(f"LPP runtime is not ready: {result.get('message')}")
 
     recommendation = result.get("recommendation") or {}
-    questions = recommendation.get("questions") or []
-    if len(questions) != 5:
-        raise ValueError("LPP recommendation must contain exactly 5 questions")
-    if [question.get("order") for question in questions] != [1, 2, 3, 4, 5]:
-        raise ValueError("LPP question orders must be consecutive from 1 to 5")
-    for question in questions:
-        if not question.get("question_text"):
-            raise ValueError("LPP question is missing question_text")
-        if not question.get("question_type"):
-            raise ValueError("LPP question is missing question_type")
-        if not question.get("knowledge_points"):
-            raise ValueError("LPP question is missing knowledge_points")
+    knowledge_points = recommendation.get("knowledge_points") or []
+    if len(knowledge_points) != 5:
+        raise ValueError("LPP recommendation must contain exactly 5 knowledge points")
+    if [point.get("order") for point in knowledge_points] != [1, 2, 3, 4, 5]:
+        raise ValueError("LPP knowledge point orders must be consecutive from 1 to 5")
+    skill_ids: set[str] = set()
+    for point in knowledge_points:
+        skill_id = str(point.get("knowledge_point_id") or point.get("skill_id") or "")
+        if not skill_id:
+            raise ValueError("LPP knowledge point is missing knowledge_point_id")
+        if not point.get("knowledge_point_name") and not point.get("skill_name"):
+            raise ValueError("LPP knowledge point is missing knowledge_point_name")
+        if skill_id in skill_ids:
+            raise ValueError("LPP recommendation knowledge points must be distinct")
+        skill_ids.add(skill_id)
 
 
 def build_learning_path_fields(result: dict[str, Any]) -> dict[str, Any]:
-    """Map fixed P1-P5 runtime facts to SmartTutor's original path schema."""
+    """Map the fixed P1-P5 knowledge-point path to the SmartTutor schema."""
     validate_lpp_result(result)
-    questions = result["recommendation"]["questions"]
-    purposes: dict[str, str] = {}
-    for item in result.get("plan_items") or []:
-        if not isinstance(item, dict):
-            continue
-        priority = str(item.get("priority") or "")
-        purpose = str(item.get("purpose_and_effect") or "").strip()
-        if priority and purpose:
-            purposes[priority] = purpose
+    knowledge_points = result["recommendation"]["knowledge_points"]
 
     stages: list[dict[str, Any]] = []
     main_path_sequence: list[str] = []
     milestones: list[str] = []
-    for question in questions:
-        order = int(question["order"])
+    for point in knowledge_points:
+        order = int(point["order"])
         priority = f"P{order}"
-        knowledge_points = question.get("knowledge_points") or []
-        skills: list[dict[str, Any]] = []
-        names: list[str] = []
-        for point in knowledge_points:
-            if not isinstance(point, dict):
-                continue
-            skill_id = str(
-                point.get("knowledge_point_id")
-                or point.get("skill_id")
-                or ""
-            )
-            skill_name = str(
-                point.get("knowledge_point_name")
-                or point.get("skill_name")
-                or f"知识点{skill_id}"
-            )
-            if skill_id and skill_id not in main_path_sequence:
-                main_path_sequence.append(skill_id)
-            names.append(skill_name)
-            skills.append(
-                {
-                    "skill_id": skill_id,
-                    "skill_name": skill_name,
-                    "priority": "必学",
-                    "estimated_time_min": 10,
-                    "reason": purposes.get(
-                        priority,
-                        f"这是 LPP Runtime 固定推荐序列中的 {priority}。",
-                    ),
-                }
-            )
-
-        knowledge_label = "、".join(names) or "当前目标知识点"
-        question_text = str(question["question_text"])
+        skill_id = str(point.get("knowledge_point_id") or point.get("skill_id") or "")
+        skill_name = str(
+            point.get("knowledge_point_name") or point.get("skill_name") or f"知识点{skill_id}"
+        )
+        main_path_sequence.append(skill_id)
+        skills = [{
+            "skill_id": skill_id,
+            "skill_name": skill_name,
+            "priority": "必学",
+            "estimated_time_min": 10,
+            "reason": f"这是 LPP Runtime 固定知识点序列中的 {priority}。",
+        }]
         stages.append(
             {
                 "stage_id": priority,
-                "name": f"{priority} · {knowledge_label}",
-                "objective": f"完成并理解{question.get('question_type', '练习题')}所考查的{knowledge_label}",
+                "name": f"{priority} · {skill_name}",
+                "objective": f"理解并掌握{skill_name}的核心概念与应用。",
                 "skills": skills,
                 "duration_min": 10,
-                "checkpoints": [f"能够独立完成并解释：{question_text}"],
-                "resources": [question_text],
-                "expected_outcome": f"完成 {priority} 并能说明相关知识点的判断依据。",
+                "checkpoints": [f"能够解释并应用：{skill_name}"],
+                "resources": [],
+                "expected_outcome": f"完成 {priority} 并能说明{skill_name}的判断依据。",
             }
         )
-        milestones.append(f"完成 {priority}：{knowledge_label}")
+        milestones.append(f"完成 {priority}：{skill_name}")
 
     total_time = f"约{sum(stage['duration_min'] for stage in stages)}分钟"
     return {
@@ -392,7 +356,7 @@ def build_learning_path_fields(result: dict[str, Any]) -> dict[str, Any]:
         "main_path_sequence": main_path_sequence,
         "optional_branch": [],
         "milestones": milestones,
-        "recommended_questions": copy.deepcopy(questions),
+        "recommended_knowledge_points": copy.deepcopy(knowledge_points),
         "target": copy.deepcopy(result.get("target")),
         "lpp_source": "lpp_runtime",
         "lpp_student_id": str(result.get("student_id") or ""),

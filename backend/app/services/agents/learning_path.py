@@ -111,7 +111,7 @@ class LearningPathAgent(BaseAgent):
                 "remediate": "LPP 可用后重新评估",
                 "redirect": "LPP 可用后重新评估",
             },
-            "recommended_questions": [],
+            "recommended_knowledge_points": [],
             "lpp_source": "lpp_unavailable",
         }
         return {
@@ -136,7 +136,7 @@ class LearningPathAgent(BaseAgent):
         output.update(build_learning_path_fields(runtime.data))
         output.setdefault(
             "planning_rationale",
-            "按照 LPP Runtime 给出的 P1 至 P5 固定顺序完成练习。",
+            "按照 LPP Runtime 给出的 P1 至 P5 固定知识点顺序完成学习。",
         )
         output.setdefault(
             "adaptive_rules",

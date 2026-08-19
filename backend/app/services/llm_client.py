@@ -45,6 +45,15 @@ class _SlidingWindowLimiter:
     async def acquire(self, expected_tokens: int) -> None:
         if self.rpm == 0 and self.tpm == 0:
             return
+        expected_tokens = max(0, int(expected_tokens))
+        if self.tpm and expected_tokens > self.tpm:
+            logger.warning(
+                "Estimated tokens %d exceed the configured TPM budget %d; "
+                "capping the limiter reservation to avoid an impossible wait",
+                expected_tokens,
+                self.tpm,
+            )
+            expected_tokens = self.tpm
         # 上界为 60s（窗口宽度），避免空窗口时无限等
         while True:
             async with self._lock:
@@ -54,7 +63,7 @@ class _SlidingWindowLimiter:
                 used_tokens = sum(e[1] for e in self._events)
                 tpm_ok = self.tpm == 0 or used_tokens + expected_tokens <= self.tpm
                 if rpm_ok and tpm_ok:
-                    self._events.append((now, max(0, int(expected_tokens))))
+                    self._events.append((now, expected_tokens))
                     return
                 # 计算还要等多久：取最早事件 + 60s
                 wait = max(0.0, self._events[0][0] + 60.0 - now) if self._events else 0.0

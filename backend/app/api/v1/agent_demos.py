@@ -37,7 +37,7 @@ _DEMO_SCENARIO = ResourceRecommendationDemoScenario(
     difficulty="中级",
 )
 _STUDY_BUDDY_DEMO_SCENARIO = StudyBuddyDemoScenario(
-    message="请推荐两个可以一起学习的学伴",
+    message="请推荐两个可以一起学习物理的学伴",
 )
 
 

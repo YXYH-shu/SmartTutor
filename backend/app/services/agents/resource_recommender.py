@@ -14,6 +14,10 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.services.agents.base_agent import BaseAgent
+from app.services.response_context import (
+    build_response_diagnosis_context,
+    build_response_profile_context,
+)
 
 logger = logging.getLogger(__name__)
 _jinja_env = Environment(loader=BaseLoader(), undefined=StrictUndefined)
@@ -44,6 +48,25 @@ class ResourceRecommenderAgent(BaseAgent):
     """Recommend learning resources through SQL candidate recall and ranking."""
 
     config_file = "resource_recommender"
+
+    async def enrich_input(self, input_data: dict, context: dict) -> dict:
+        """Remove verbose KT and profile payloads before any planning prompt."""
+        enriched = await super().enrich_input(input_data, context)
+        diagnosis = enriched.get("diagnosis_result")
+        if not isinstance(diagnosis, dict):
+            diagnosis = enriched.get("cognitive_diagnosis")
+        diagnosis_context = None
+        if isinstance(diagnosis, dict):
+            diagnosis_context = build_response_diagnosis_context(diagnosis)
+            enriched["diagnosis_result"] = diagnosis_context
+
+        profile = enriched.get("user_profile")
+        if isinstance(profile, dict):
+            enriched["user_profile"] = build_response_profile_context(
+                profile,
+                diagnosis_context,
+            )
+        return enriched
 
     async def execute(
         self,
@@ -724,6 +747,20 @@ class ResourceRecommenderAgent(BaseAgent):
     @staticmethod
     def _prepare_plan_input(input_data: dict[str, Any]) -> dict[str, Any]:
         prepared = dict(input_data)
+        diagnosis = prepared.get("diagnosis_result")
+        if not isinstance(diagnosis, dict):
+            diagnosis = prepared.get("cognitive_diagnosis")
+        diagnosis_context = None
+        if isinstance(diagnosis, dict):
+            diagnosis_context = build_response_diagnosis_context(diagnosis)
+            prepared["diagnosis_result"] = diagnosis_context
+
+        profile = prepared.get("user_profile")
+        if isinstance(profile, dict):
+            prepared["user_profile"] = build_response_profile_context(
+                profile,
+                diagnosis_context,
+            )
         prepared.setdefault("recent_messages", [])
         prepared.setdefault("current_message", prepared.get("message", ""))
         return prepared

@@ -185,27 +185,23 @@ class CognitiveDiagnosisAgent(BaseAgent):
                 logger.warning("UserProfile not found for user %s", user_id)
                 return
 
-            # Merge knowledge_states into knowledge_graph
+            # The normalized KT result is already the skill-selected Top-18.
+            # Replace prior state so an old full prediction cannot leak back
+            # into graph context for later agents.
             knowledge_states = output.get("knowledge_states", [])
-            if knowledge_states:
-                existing = profile.knowledge_graph or {}
-                for ks in knowledge_states:
-                    skill_id = ks.get("skill_id") or ks.get("skill_name", "")
-                    existing[skill_id] = self._mastery_probability(ks)
-                profile.knowledge_graph = existing
+            profile.knowledge_graph = {
+                str(ks.get("skill_id") or ks.get("skill_name")): self._mastery_probability(ks)
+                for ks in knowledge_states
+                if isinstance(ks, dict) and (ks.get("skill_id") or ks.get("skill_name"))
+            }
 
-            # Persist structured knowledge graph from diagnosis output
+            # Persist only this round's structured knowledge graph.
             kg_output = output.get("knowledge_graph")
             if kg_output and isinstance(kg_output, dict):
-                existing = profile.knowledge_graph or {}
-                if isinstance(existing, dict):
-                    existing["_graph"] = kg_output
-                    profile.knowledge_graph = existing
+                profile.knowledge_graph["_graph"] = kg_output
 
-            # Update weak points
-            weak = output.get("weak_points", [])
-            if weak:
-                profile.weak_points = weak
+            # Empty is meaningful: it clears stale weak points from older runs.
+            profile.weak_points = list(output.get("weak_points") or [])
 
             profile.last_diagnosis = datetime.now(timezone.utc)
             session.add(profile)

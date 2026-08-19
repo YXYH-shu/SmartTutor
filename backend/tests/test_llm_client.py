@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.config import settings
-from app.services.llm_client import LLMClient
+from app.services.llm_client import LLMClient, _SlidingWindowLimiter
 
 
 def _response(*, content: str | None, reasoning: str | None, completion_tokens: int):
@@ -25,6 +26,15 @@ def _response(*, content: str | None, reasoning: str | None, completion_tokens: 
             total_tokens=100 + completion_tokens,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_caps_a_single_request_larger_than_tpm_budget():
+    limiter = _SlidingWindowLimiter(rpm=0, tpm=100)
+
+    await asyncio.wait_for(limiter.acquire(200), timeout=0.2)
+
+    assert limiter._events[0][1] == 100
 
 
 @pytest.mark.asyncio

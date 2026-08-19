@@ -334,6 +334,58 @@ def build_top_k_knowledge(
     return results[:top_k], used_relaxed
 
 
+def build_knowledge_point_recommendations(
+    *,
+    scorer: RektScorer,
+    top_k_knowledge: list[tuple[int, float, int]],
+    recommended_questions: list[dict[str, object]],
+    target_skills: list[int],
+    fallback_skill_ids: list[int] | None = None,
+    fixed_size: int = FIXED_RECOMMENDATION_SIZE,
+) -> list[dict[str, object]]:
+    """Build the public P1--P5 path from existing runtime evidence.
+
+    DSMOEA continues to optimise questions internally.  This boundary exposes
+    its ACE-ranked knowledge points first, then uses target and selected-question
+    knowledge points only as deterministic fallbacks to keep five distinct steps.
+    """
+    candidate_ids = [int(skill_id) for skill_id, _, _ in top_k_knowledge]
+    candidate_ids.extend(int(skill_id) for skill_id in target_skills)
+    for question in recommended_questions:
+        for point in question.get("knowledge_points") or []:
+            if not isinstance(point, dict):
+                continue
+            raw_skill_id = point.get("knowledge_point_id") or point.get("skill_id")
+            try:
+                candidate_ids.append(int(raw_skill_id))
+            except (TypeError, ValueError):
+                continue
+    candidate_ids.extend(int(skill_id) for skill_id in (fallback_skill_ids or []))
+
+    selected: list[dict[str, object]] = []
+    seen: set[int] = set()
+    for skill_id in candidate_ids:
+        if skill_id in seen:
+            continue
+        seen.add(skill_id)
+        metadata = dict(scorer.knowledge_metadata(skill_id))
+        selected.append(
+            {
+                "order": len(selected) + 1,
+                "knowledge_point_id": int(
+                    metadata.get("knowledge_point_id") or skill_id
+                ),
+                "knowledge_point_name": str(
+                    metadata.get("knowledge_point_name") or f"知识点{skill_id}"
+                ),
+            }
+        )
+        if len(selected) >= fixed_size:
+            return selected
+
+    raise RuntimeError(f"可用知识点不足，无法生成固定 {fixed_size} 个不同知识点")
+
+
 def fill_recommendation_to_fixed_size(
     scorer: RektScorer,
     original_questions: list[int],
@@ -550,6 +602,13 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
         build_question_payload(scorer, question_id, rank)
         for rank, question_id in enumerate(recommended_questions, 1)
     ]
+    recommended_knowledge_points = build_knowledge_point_recommendations(
+        scorer=scorer,
+        top_k_knowledge=top_k,
+        recommended_questions=recommended_question_payloads,
+        target_skills=target_skills,
+        fallback_skill_ids=sorted(scorer.data.skill_to_questions),
+    )
     target_with_probabilities = {
         **target_payload,
         "baseline_correctness_probability": base,
@@ -563,6 +622,7 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
         target=target_with_probabilities,
         recommendation={
             "count": FIXED_RECOMMENDATION_SIZE,
+            "knowledge_points": recommended_knowledge_points,
             "questions": recommended_question_payloads,
         },
         plan_items=build_plan_items(scorer, recommended_question_payloads, target_with_probabilities),

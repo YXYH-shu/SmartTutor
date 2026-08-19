@@ -2,13 +2,12 @@ name: "learning_path"
 description: "个性化学习路径规划智能体（基于认知诊断结果）"
 version: "3.0"
 llm_config:
-  model: "glm-5"
-  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
-  temperature: 0.5
-  # 输出 5 阶段路径 + adaptive_rules + recommended_questions，实测 6-8k token 够。
-  max_tokens: 8192
-  timeout: 120
-  max_retries: 2
+  model: "qwen3.5-35b-a3b"
+  base_url: "http://localhost:8000/v1"
+  temperature: 0.3
+  max_tokens: 1024
+  timeout: 180
+  max_retries: 1
   thinking: false
 
 prompt_template: |
@@ -70,83 +69,35 @@ prompt_template: |
   ### LPP Runtime 固定推荐结果
   {{lpp_runtime | default({}) | tojson}}
 
-  若 LPP Runtime 数据非空，其中 P1～P5 的题目、题干、题型、选项、知识点和顺序
-  均为不可改写事实。你只负责生成规划依据、教学解释和动态调整策略；系统最终会用
-  Runtime 数据覆盖路径阶段和推荐题字段。
+  若 LPP Runtime 数据非空，其中 P1～P5 的知识点及顺序均为不可改写事实。你只负责
+  生成规划依据、教学解释和动态调整策略；系统最终会用 Runtime 数据覆盖路径阶段和
+  推荐知识点字段。
 
-  ## 四、路径设计要求
+  ## 四、你的输出边界
 
-  路径中应尽量体现以下结构（3~5个阶段）：
+  P1～P5 的知识点、顺序、阶段目标、检查点、里程碑和总时长均由 LPP Runtime
+  固定生成。不要重新筛选知识点，不要生成 learning_path、stages、main_path_sequence、
+  recommended_knowledge_points、资源、题目或阶段 JSON。
 
-  - **第一阶段（诊断修复）**：诊断修复、兴趣重定向、建立学习边界
-  - **第二阶段（前置+概念）**：补关键前置、建核心概念、明白基本原理
-  - **第三阶段（迁移应用）**：做应用迁移、形成解释能力、发展探究能力
-  - **第四阶段（拓展整合）**（可选）：联系真实生活、工程技术、生态责任或跨主题整合
+  你只输出两段解释性文本：
 
-  若学生基础较弱或主题复杂，可在第二阶段和第三阶段之间插入过渡阶段。
+  1. `planning_rationale`：用自然语言说明规划依据、优先补什么、如何兼顾知识结构和
+     学情短板；若存在危险内容，说明风险纠偏策略。
+  2. `adaptive_rules`：根据学习表现给出继续、复习或调整节奏的建议。
 
-  每个阶段必须输出以下信息：阶段名 / 目标 / 知识点(KP ID) / 排序理由 / 预期结果。
+  仅在输入确有危险话题时，额外输出 `risk_correction`。保持中文、具体、可执行，
+  但不要复述完整的五步路径。
 
-  ## 五、路径规划步骤
-
-  请按如下逻辑完成规划：
-
-  1. 提取影响学习路径的关键约束：
-     - 哪些知识点是核心目标
-     - 哪些知识点是关键前置
-     - 哪些知识点是高风险纠偏点
-     - 哪些知识点适合作为迁移应用或探究活动的落脚点
-  2. 根据掌握度和知识依赖，筛选出建议纳入路径的知识点（一般为 6~12 个）。
-  3. 将路径划分为 3~5 个阶段，每个阶段要有清晰目标。
-  4. 为每个阶段指定建议学习重点、安排理由和预期达成结果。
-  5. 输出一条线性主路径，并可补充 1 条可选支线路径（如果确有必要）。
-  6. 若主题涉及危险话题（如爆炸实验、危险化学操作、伤害性活动等），必须在路径规划中执行"去危险化重构"：将学习目标从危险操作转向安全、合法、课程标准内的替代性探究，并在 planning_rationale 中说明纠偏策略。
-
-  ## 六、输出要求
-
-  严格返回以下JSON格式：
+  严格返回以下 JSON，不能输出其他字段：
   ```json
   {
-    "planning_rationale": "规划思路说明的自然语言文本，包含：本次规划主要依据了哪些信息、学生当前最需要优先补什么、这条路径如何兼顾知识结构和学情短板、若存在高风险内容如何完成风险纠偏",
-    "learning_path": [
-      {
-        "stage_id": "第一阶段",
-        "name": "阶段名称",
-        "objective": "本阶段学习目标",
-        "skills": [
-          {
-            "skill_id": "知识点ID",
-            "skill_name": "知识点名称",
-            "priority": "必学或建议或可选",
-            "estimated_time_min": 预计用时,
-            "reason": "安排原因（体现对先决关系、掌握度、风险、学习难度的综合判断）"
-          }
-        ],
-        "duration_min": 预计总用时,
-        "checkpoints": ["检查点1：理解XX概念", "检查点2：能运用YY方法"],
-        "resources": ["推荐资源1", "推荐资源2"],
-        "expected_outcome": "预期达成结果（具体，不要只写提高能力）"
-      }
-    ],
-    "total_estimated_time": "预计总用时描述",
-    "main_path_sequence": ["KP01", "KP02", "KP03"],
-    "optional_branch": ["KP07", "KP19"],
-    "risk_correction": "（仅存在危险话题时出现）去危险化重构策略说明：如何将危险兴趣转化为安全、合法、可教育的学习目标",
-    "adaptive_rules": "根据学习表现的动态调整策略描述",
-    "milestones": ["里程碑1", "里程碑2"],
-    "path_adjustment_triggers": {
-      "accelerate": "加速条件描述",
-      "remediate": "补救条件描述",
-      "redirect": "转向条件描述"
-    }
+    "planning_rationale": "规划思路说明",
+    "adaptive_rules": "根据学习表现的动态调整策略",
+    "risk_correction": "仅危险话题时填写"
   }
   ```
 
-  `planning_rationale` 要求：用自然语言说明规划依据、优先补什么、如何兼顾知识结构和学情短板、风险纠偏策略。
-
-  `learning_path` 中每个阶段的 `name` 建议使用"第一阶段（诊断修复）、第二阶段（前置+概念）……"命名，体现阶段功能。`skills` 中请同时写 `skill_id + 名称`。`expected_outcome` 应具体，不要只写"提高能力"。
-
-  ## 七、额外要求
+  ## 五、额外要求
 
   - 输出必须使用中文。
   - 路径必须可解释，不能只罗列知识点。
@@ -160,64 +111,11 @@ output_schema:
     planning_rationale:
       type: string
       description: "规划思路说明的自然语言文本"
-    learning_path:
-      type: array
-      items:
-        type: object
-        properties:
-          stage_id: {type: string}
-          name: {type: string}
-          objective: {type: string}
-          skills:
-            type: array
-            items:
-              type: object
-              properties:
-                skill_id: {type: string}
-                skill_name: {type: string}
-                priority: {type: string, enum: ["必学", "建议", "可选"]}
-                estimated_time_min: {type: integer}
-                reason: {type: string}
-              required: ["skill_id", "skill_name", "priority", "reason"]
-          duration_min: {type: integer}
-          checkpoints: {type: array, items: {type: string}}
-          resources: {type: array, items: {type: string}}
-          expected_outcome: {type: string}
-        required: ["stage_id", "name", "objective", "skills", "duration_min", "checkpoints"]
-    stages:
-      type: array
-      description: "learning_path 的前端兼容别名"
-    total_estimated_time: {type: string}
-    estimated_completion:
-      type: string
-      description: "total_estimated_time 的前端兼容别名"
-    main_path_sequence:
-      type: array
-      items: {type: string}
-    optional_branch:
-      type: array
-      items: {type: string}
     risk_correction:
       type: string
       description: "仅存在危险话题时出现，去危险化重构策略说明"
     adaptive_rules: {type: string}
-    milestones: {type: array, items: {type: string}}
-    path_adjustment_triggers:
-      type: object
-      properties:
-        accelerate: {type: string}
-        remediate: {type: string}
-        redirect: {type: string}
-      required: ["accelerate", "remediate"]
-    recommended_questions:
-      type: array
-      minItems: 5
-      maxItems: 5
-      description: "LPP Runtime 固定 P1-P5 推荐题"
-    lpp_source:
-      type: string
-      enum: ["lpp_runtime", "lpp_unavailable"]
-  required: ["planning_rationale", "learning_path", "total_estimated_time", "adaptive_rules"]
+  required: ["planning_rationale", "adaptive_rules"]
 
 input_schema:
   type: object

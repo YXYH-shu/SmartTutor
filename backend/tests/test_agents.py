@@ -227,6 +227,43 @@ class TestResourceRecommender:
             "knowledge_tags": ["physics"],
         }
 
+    def test_first_plan_input_drops_verbose_diagnosis_and_profile_graph(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        diagnosis = {
+            "diagnosis_summary": "需要优先补齐薄弱知识点。",
+            "kt_llm_analysis": {"report_markdown": "冗长报告" * 10000},
+            "knowledge_states": [
+                {
+                    "skill_id": str(index),
+                    "skill_name": f"知识点{index}",
+                    "mastery_rate": index / 100,
+                    "status": "weak",
+                }
+                for index in range(18)
+            ],
+        }
+        profile = {
+            "current_level": "初级",
+            "knowledge_graph": {
+                "nodes": [{"id": str(index)} for index in range(334)],
+                "edges": [],
+            },
+        }
+
+        prepared = ResourceRecommenderAgent(llm=_patch_llm)._prepare_plan_input(
+            {
+                "current_message": "请推荐学习资源",
+                "diagnosis_result": diagnosis,
+                "user_profile": profile,
+            }
+        )
+
+        assert "kt_llm_analysis" not in prepared["diagnosis_result"]
+        assert len(prepared["diagnosis_result"]["priority_states"]) == 10
+        assert "knowledge_graph" not in prepared["user_profile"]
+        assert prepared["user_profile"]["current_level"] == "初级"
+
     @pytest.mark.asyncio
     async def test_sql_candidates_are_graph_ranked_and_summary_keeps_execution_results(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent

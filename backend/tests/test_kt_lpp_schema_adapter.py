@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -80,10 +81,95 @@ def test_kt_normalization_supplies_original_schema_fields():
     assert result["diagnosis_source"] == "kt_rekt"
 
 
+def test_kt_normalization_keeps_only_skill_selected_top_18():
+    predictions = [
+        {
+            "target": {
+                "skill_id": skill_id,
+                "extras": {"knowledge_point_name": f"知识点{skill_id}"},
+            },
+            "probability_correct": 0.2 if skill_id % 2 else 0.8,
+        }
+        for skill_id in range(1, 335)
+    ]
+    selected_ids = list(range(118, 100, -1))
+
+    result = kt_integration._normalize_kt_output(
+        {
+            "predictions": predictions,
+            "llm_analysis": {
+                "selected_knowledge_points": [
+                    {"source_skill_id": skill_id}
+                    for skill_id in selected_ids
+                ]
+            },
+        }
+    )
+
+    assert [state["skill_id"] for state in result["knowledge_states"]] == [
+        str(skill_id) for skill_id in selected_ids
+    ]
+    assert set(result["mastery_rates"]) == {
+        str(skill_id) for skill_id in selected_ids
+    }
+    assert {state["skill_id"] for state in result["weak_points"]} <= {
+        str(skill_id) for skill_id in selected_ids
+    }
+
+
 def test_mastery_probability_prefers_numeric_rate_and_accepts_decimal_percent():
     assert CognitiveDiagnosisAgent._mastery_probability(
         {"mastery_rate": 0.25, "mastery_percent": "99.0%"}
     ) == pytest.approx(0.25)
+
+
+@pytest.mark.asyncio
+async def test_diagnosis_profile_replaces_prior_unselected_knowledge_states(
+    monkeypatch,
+):
+    profile = SimpleNamespace(
+        user_id="user-1",
+        knowledge_graph={"old-unselected": 0.1, "17": 0.2, "_graph": {"old": True}},
+        weak_points=[{"skill_id": "old-unselected"}],
+        last_diagnosis=None,
+    )
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def execute(self, statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: profile)
+
+        def add(self, item):
+            assert item is profile
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(
+        "app.services.agents.cognitive_diagnosis.AsyncSessionLocal",
+        lambda: FakeSession(),
+    )
+
+    agent = CognitiveDiagnosisAgent(llm=MagicMock())
+    await agent.post_process(
+        {
+            "knowledge_states": [{"skill_id": "17", "mastery_rate": 0.25}],
+            "weak_points": [{"skill_id": "17"}],
+            "knowledge_graph": {"nodes": [{"id": "17"}]},
+        },
+        {"user_id": profile.user_id},
+    )
+
+    assert profile.knowledge_graph == {
+        "17": 0.25,
+        "_graph": {"nodes": [{"id": "17"}]},
+    }
+    assert profile.weak_points == [{"skill_id": "17"}]
 
 
 def _diagnosis_states() -> list[dict]:
@@ -151,9 +237,9 @@ def test_kt_prompt_context_is_bounded_and_nonduplicative():
     assert "weak_points" not in context
 
 
-def test_feature_agent_token_limits_are_16384():
-    assert CognitiveDiagnosisAgent(llm=MagicMock()).llm_config["max_tokens"] == 16384
-    assert LearningPathAgent(llm=MagicMock()).llm_config["max_tokens"] == 16384
+def test_feature_agent_token_limits_bound_followup_generation():
+    assert CognitiveDiagnosisAgent(llm=MagicMock()).llm_config["max_tokens"] == 1024
+    assert LearningPathAgent(llm=MagicMock()).llm_config["max_tokens"] == 1024
 
 
 def test_diagnosis_prompt_context_is_bounded_for_learning_path():
@@ -212,7 +298,7 @@ async def test_knowledge_responder_prompt_uses_bounded_kt_and_lpp_context():
             "remediate": "基础题答错",
             "redirect": "安全判断题答错",
         },
-        "recommended_questions": _lpp_runtime_result()["recommendation"]["questions"],
+        "recommended_knowledge_points": _lpp_runtime_result()["recommendation"]["knowledge_points"],
         "learning_path": [{"secret": "full-learning-path-secret"}],
         "stages": [{"secret": "duplicate-stages-secret"}],
         "target": {"secret": "full-target-secret"},
@@ -254,8 +340,8 @@ async def test_knowledge_responder_prompt_uses_bounded_kt_and_lpp_context():
         "root_causes": ["前置知识不牢固"]
     }
     assert [
-        question["order"]
-        for question in enriched["learning_plan"]["recommended_questions"]
+        point["order"]
+        for point in enriched["learning_plan"]["recommended_knowledge_points"]
     ] == [1, 2, 3, 4, 5]
     assert enriched["learning_plan"]["planning_rationale"] == (
         "按照先基础后迁移的顺序安排练习。"
@@ -311,7 +397,18 @@ def _lpp_runtime_result() -> dict:
         "message": "recommendations_ready",
         "student_id": "43",
         "target": {"question_id": 99, "question_text": "目标题"},
-        "recommendation": {"count": 5, "questions": questions},
+        "recommendation": {
+            "count": 5,
+            "questions": questions,
+            "knowledge_points": [
+                {
+                    "order": order,
+                    "knowledge_point_id": 10 + order,
+                    "knowledge_point_name": f"知识点{order}",
+                }
+                for order in range(1, 6)
+            ],
+        },
         "plan_items": [],
         "diagnostics": {"initial_target_source": "default"},
     }
@@ -381,8 +478,8 @@ async def test_learning_path_prompt_boundary_removes_full_runtime_and_profile_da
         "edges": [],
     }
     assert [
-        question["order"]
-        for question in enriched["lpp_runtime"]["recommendation"]["questions"]
+        point["order"]
+        for point in enriched["lpp_runtime"]["recommendation"]["knowledge_points"]
     ] == [1, 2, 3, 4, 5]
     for forbidden in (
         "runtime-diagnostics-secret",
@@ -398,20 +495,48 @@ async def test_learning_path_prompt_boundary_removes_full_runtime_and_profile_da
         assert forbidden not in rendered
 
 
-def test_lpp_contract_requires_exactly_five_ordered_questions():
+def test_lpp_contract_requires_exactly_five_ordered_knowledge_points():
     from app.services.lpp_integration import validate_lpp_result
 
     validate_lpp_result(_lpp_runtime_result())
 
     broken = _lpp_runtime_result()
-    broken["recommendation"]["questions"].pop()
+    broken["recommendation"]["knowledge_points"].pop()
     with pytest.raises(ValueError, match="exactly 5"):
         validate_lpp_result(broken)
 
     reordered = _lpp_runtime_result()
-    reordered["recommendation"]["questions"][4]["order"] = 4
+    reordered["recommendation"]["knowledge_points"][4]["order"] = 4
     with pytest.raises(ValueError, match="consecutive"):
         validate_lpp_result(reordered)
+
+
+def test_learning_path_llm_contract_requests_explanation_fields_only():
+    from jsonschema import validate
+
+    agent = LearningPathAgent(llm=MagicMock())
+    validate(
+        {
+            "planning_rationale": "先修复薄弱知识点，再按固定顺序完成五步学习。",
+            "adaptive_rules": "每一步完成后根据掌握情况决定继续或复习。",
+        },
+        agent.output_schema,
+    )
+
+    rendered = agent._render_prompt(
+        {
+            "current_message": "请规划学习路径",
+            "recent_messages": [],
+            "diagnosis_result": {},
+            "knowledge_graph": {},
+            "goal": "掌握薄弱知识点",
+            "user_profile": {},
+            "lpp_runtime": {"recommendation": {"knowledge_points": []}},
+        }
+    )
+    assert '"learning_path"' not in rendered
+    assert '"planning_rationale"' in rendered
+    assert '"adaptive_rules"' in rendered
 
 
 @pytest.mark.asyncio
@@ -475,7 +600,7 @@ async def test_cognitive_agent_uses_default_student_and_runtime_facts(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_learning_path_preserves_runtime_questions_and_aliases(monkeypatch):
+async def test_learning_path_exposes_runtime_knowledge_points_and_aliases(monkeypatch):
     runtime_data = _lpp_runtime_result()
     run_lpp = AsyncMock(
         return_value=LppRuntimeOutput(data=runtime_data, raw_json="{}")
@@ -489,11 +614,11 @@ async def test_learning_path_preserves_runtime_questions_and_aliases(monkeypatch
     llm.chat_completion = AsyncMock(
         return_value={
             "content": {
-                "planning_rationale": "根据真实推荐题安排五步学习。",
+                "planning_rationale": "根据知识点优先级安排五步学习。",
                 "learning_path": [{"stage_id": "fake"}],
                 "total_estimated_time": "错误时间",
                 "adaptive_rules": "答错时先复习对应知识点。",
-                "recommended_questions": [{"order": 99}],
+                "recommended_knowledge_points": [{"order": 99}],
             },
             "usage": {},
         }
@@ -520,9 +645,10 @@ async def test_learning_path_preserves_runtime_questions_and_aliases(monkeypatch
         "P5",
     ]
     assert output["total_estimated_time"] == output["estimated_completion"]
-    assert [q["order"] for q in output["recommended_questions"]] == [1, 2, 3, 4, 5]
+    assert [point["order"] for point in output["recommended_knowledge_points"]] == [1, 2, 3, 4, 5]
+    assert "recommended_questions" not in output
     assert output["lpp_source"] == "lpp_runtime"
-    assert output["planning_rationale"] == "根据真实推荐题安排五步学习。"
+    assert output["planning_rationale"] == "根据知识点优先级安排五步学习。"
 
 
 @pytest.mark.asyncio

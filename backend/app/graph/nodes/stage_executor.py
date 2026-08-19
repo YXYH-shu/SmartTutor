@@ -47,6 +47,41 @@ _AGENT_TIMEOUT_SECONDS = {
 _engine: DecisionEngine | None = None
 
 
+def _resolve_agent_names(stage_def: dict[str, Any], state: TutorState) -> list[str]:
+    """Use an explicit path-planning queue instead of the generic stage queue."""
+    requested = list(state.get("next_agents") or [])
+    if "learning_path" in requested:
+        return requested
+    return list(stage_def.get("agents", []))
+
+
+def _profile_with_diagnosis(
+    profile: dict[str, Any] | None,
+    diagnosis: dict[str, Any],
+) -> dict[str, Any]:
+    """Refresh this turn's profile with only current diagnosis facts."""
+    refreshed = dict(profile) if isinstance(profile, dict) else {}
+    knowledge_graph: dict[str, Any] = {}
+    for state in diagnosis.get("knowledge_states") or []:
+        if not isinstance(state, dict):
+            continue
+        skill_id = str(state.get("skill_id") or state.get("skill_name") or "").strip()
+        if not skill_id:
+            continue
+        mastery = state.get("mastery_rate")
+        if mastery is None:
+            mastery = state.get("mastery_percent")
+        knowledge_graph[skill_id] = mastery
+
+    diagnosis_graph = diagnosis.get("knowledge_graph")
+    if isinstance(diagnosis_graph, dict):
+        knowledge_graph["_graph"] = diagnosis_graph
+
+    refreshed["knowledge_graph"] = knowledge_graph
+    refreshed["weak_points"] = list(diagnosis.get("weak_points") or [])
+    return refreshed
+
+
 def _get_engine() -> DecisionEngine:
     global _engine
     if _engine is None:
@@ -132,7 +167,7 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
     if not stage_def:
         return {"decision": "finish", "requires_user_input": True}
 
-    agent_names: list[str] = stage_def.get("agents", [])
+    agent_names = _resolve_agent_names(stage_def, state)
     ctx = {**(state.get("context") or {})}
     last_output: dict[str, Any] | None = None
 
@@ -312,6 +347,14 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
 
         output = result["output"]
         ctx[name] = output
+        if name == "cognitive_diagnosis" and isinstance(output, dict):
+            # The DB is updated by the agent, but downstream agents in this
+            # same stage read the in-memory state snapshot. Refresh it now so
+            # they cannot receive a legacy full knowledge graph.
+            ctx["user_profile"] = _profile_with_diagnosis(
+                state.get("user_profile"),
+                output,
+            )
         ctx["_last_agent"] = name
         ctx["_last_output"] = output
         last_output = output
@@ -338,6 +381,7 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
     # If stage outputs to user, set final_response from the last agent
     updates: dict[str, Any] = {
         "context": ctx,
+        "user_profile": ctx.get("user_profile", state.get("user_profile")),
         "stage_counter": state.get("stage_counter", 0) + 1,
     }
 
