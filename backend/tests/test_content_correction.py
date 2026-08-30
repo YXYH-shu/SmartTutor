@@ -73,6 +73,35 @@ async def test_pass_preserves_original_exactly_and_has_no_emotion_input(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_content_correction_compacts_safety_trace_before_llm(monkeypatch):
+    agent = StubAgent(_audit("PASS"))
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+    state = _state("## 回答\n\n1. 原理。\n2. 边界。")
+    state["context"]["safety_context"] = {
+        "branch": "GUIDE",
+        "risk_category": "A",
+        "core_topic": "危险反应",
+        "forbidden_content": ["危险操作步骤"],
+        "classifier": {"large_trace": "不应进入内容矫正提示词"},
+        "guidance_skill": {
+            "education_domain": "science_safety",
+            "safe_query": "为什么危险反应需要专业控制？",
+            "subject_options": [{"large_tree": "不应进入内容矫正提示词"}],
+        },
+    }
+
+    await correction_module.content_correction(state)
+
+    constraints = agent.calls[0]["safety_constraints"]
+    assert constraints["branch"] == "GUIDE"
+    assert constraints["core_topic"] == "危险反应"
+    assert constraints["guidance"]["education_domain"] == "science_safety"
+    assert "classifier" not in constraints
+    assert "guidance_skill" not in constraints
+    assert "subject_options" not in constraints["guidance"]
+
+
+@pytest.mark.asyncio
 async def test_valid_local_patch_is_accepted(monkeypatch):
     original = "## 步骤\n\n1. 断开电源。\n2. 检查设备。"
     patched = "## 步骤\n\n1. 先断开电源，避免带电检查。\n2. 检查设备。"

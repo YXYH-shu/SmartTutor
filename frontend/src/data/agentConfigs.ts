@@ -617,18 +617,61 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       label: '验收动作',
     },
     {
+      key: 'requested_action',
+      label: '模型建议',
+    },
+    {
       key: 'status',
       label: '处理状态',
+      format: (v: unknown) => {
+        const labels: Record<string, string> = {
+          passed: 'PASSED',
+          patched: 'PATCHED',
+          audited: 'AUDITED',
+          patch_rejected: 'PATCH_REJECTED',
+          regeneration_limit: 'REGENERATION_LIMIT',
+          audit_fallback: 'AUDIT_FALLBACK',
+        };
+        return typeof v === 'string' ? (labels[v] ?? v.toUpperCase()) : 'UNKNOWN';
+      },
     },
     {
       key: 'issues',
       label: '发现问题',
-      format: (v: unknown) => (Array.isArray(v) ? `${v.length} 项` : '0 项'),
+      format: (v: unknown) =>
+        Array.isArray(v) && v.length > 0 ? `${v.length} ISSUES` : 'NO_ISSUES',
+    },
+    {
+      key: 'checks',
+      label: '四项验收',
+      format: (v: unknown) => {
+        if (typeof v !== 'object' || v === null) return 'NO_CHECK_DETAILS';
+        const values = Object.values(v as Record<string, unknown>);
+        if (values.length === 0) return 'NO_CHECK_DETAILS';
+        const passed = values.filter((item) => item === true).length;
+        return `${passed}/${values.length} PASSED`;
+      },
+    },
+    {
+      key: 'patched_response',
+      label: '修补结果',
+      format: (v: unknown) =>
+        typeof v === 'string' && v.trim()
+          ? (v.length > 40 ? `${v.slice(0, 40)}…` : v)
+          : 'NO_PATCH_REQUIRED',
     },
     {
       key: 'structure_preserved',
       label: '结构保留',
-      format: (v: unknown) => (v === true ? '是' : '否'),
+      format: (v: unknown) => (v === true ? 'YES' : v === false ? 'NO' : 'NOT_CHECKED'),
+    },
+    {
+      key: 'regeneration_count',
+      label: '重写次数',
+      format: (v: unknown) =>
+        typeof v === 'number' && v > 0
+          ? `${v} ${v === 1 ? 'REWRITE' : 'REWRITES'}`
+          : 'NOT_TRIGGERED',
     },
   ],
   safety_monitor: [
@@ -636,14 +679,32 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
     { key: 'raw_branch', label: '分支代码' },
     { key: 'safety_context.risk_category', label: '风险类别' },
     { key: 'safety_context.intent', label: '识别意图' },
-    { key: 'safety_context.reject_type', label: '拒绝原因' },
-    { key: 'safety_context.guidance_skill.selection_phase', label: '选择阶段' },
-    { key: 'safety_context.guidance_skill.school_subject', label: '主科目' },
-    { key: 'safety_context.guidance_skill.subject_focus', label: '知识焦点' },
+    { key: 'safety_context.core_topic', label: '核心主题' },
+    {
+      key: 'safety_context.operational_request',
+      label: '操作性请求',
+      format: (v: unknown) => (v === true ? 'YES' : v === false ? 'NO' : 'UNKNOWN'),
+    },
+    {
+      key: 'safety_context.classifier.decision_source',
+      label: '判断来源',
+      format: (v: unknown) => (typeof v === 'string' ? v.toUpperCase() : 'UNKNOWN'),
+    },
+    {
+      key: 'safety_context.reject_type',
+      label: '拒绝原因',
+      format: (v: unknown) => (typeof v === 'string' && v ? v : 'N/A'),
+    },
+    {
+      key: 'safety_context.guidance_skill.selection_mode',
+      label: '引导方式',
+      format: (v: unknown) => (v === 'two_stage' ? 'TWO_STAGE' : 'N/A'),
+    },
     {
       key: 'safety_context.guidance_skill.learning_options',
       label: '学习方向',
-      format: (v) => (Array.isArray(v) ? `${v.length} 个选项` : '-'),
+      format: (v) =>
+        Array.isArray(v) && v.length > 0 ? `${v.length} OPTIONS` : 'NO_SELECTION_REQUIRED',
     },
   ],
 };

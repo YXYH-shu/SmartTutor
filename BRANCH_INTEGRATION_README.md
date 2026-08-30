@@ -275,3 +275,14 @@ GUIDE 第一阶段和第二阶段都通过 `assemble_response` 结束当前轮�
 | `frontend/src/components/chat/ChatInput.tsx` | 渲染学科与知识点按钮并发送选择结果 |
 | `frontend/src/components/chat/AgentInteractionLog.tsx` | 展示安全监测和内容矫正过程字段 |
 | `frontend/src/data/agentConfigs.ts` | 增加两个智能体的前端名称和说明 |
+
+## 4. 待集成人员决定：公共 LLM 配置展示
+
+当前智能体详情卡片中的 LLM 配置来自 `frontend/src/data/agentConfigs.ts` 的静态手抄值，不是后端本次实际调用参数。当前安全监测卡片显示 `maxTokens=4096`，但安全门面 YAML 为 `1800`，主分类器和复核器当前单次调用均为 `180`；内容矫正卡片显示 `4096 / 60s / 2 retries`，后端 YAML 实际为 `2048 / 60s / 1 retry`。
+
+这属于公共前端与接口展示问题，不影响两个智能体的实际判断和 LangGraph 路由，但会使联调人员误判模型配置。建议集成人员在以下方案中选择：
+
+1. 推荐方案：后端通过执行事件或元数据接口返回运行时解析后的 LLM 配置，前端按实际调用展示；安全监测应区分主分类器、复核器和教育引导 Skill。
+2. 最小方案：仅把 `agentConfigs.ts` 的静态数字同步到当前 YAML，并标注为配置说明；该方案以后仍可能再次失配。
+
+本分支暂未修改公共接口或上述静态 LLM 参数。完整差异、影响范围和待确认事项记录在 `PHASE1_BRANCH_CHANGE_NOTES.md` 的“待总协调人员确认：LLM 配置展示是否改为运行时数据”一节，由集成人员决定是否实施。
