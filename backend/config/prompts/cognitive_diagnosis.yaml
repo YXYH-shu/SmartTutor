@@ -2,8 +2,6 @@ name: "cognitive_diagnosis"
 description: "KT 事实驱动的认知诊断解释智能体"
 version: "4.0"
 llm_config:
-  model: "qwen3.5-35b-a3b"
-  base_url: "http://localhost:8000/v1"
   temperature: 0.3
   max_tokens: 1024
   timeout: 60
