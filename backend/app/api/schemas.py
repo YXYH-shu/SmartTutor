@@ -140,8 +140,6 @@ class ResourceRecommendationDemoScenario(BaseModel):
     """Read-only input context used by the resource recommendation demo."""
 
     message: str
-    target_knowledge: str
-    difficulty: str
 
 
 class ResourceRecommendationDemoResponse(BaseModel):

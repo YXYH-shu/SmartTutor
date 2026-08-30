@@ -126,14 +126,14 @@ async def test_demo_endpoint_runs_fixed_non_persistent_context(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["scenario"]["message"] == "请在牛顿运动定律类似的两个资源"
+    assert "牛顿运动定律" in payload["scenario"]["message"]
     assert payload["usage"] == {"total_tokens": 42}
     assert payload["latency_ms"] == 321
     assert payload["output"]["tool_trace"][0]["tool"] == "RankingTool"
 
     input_data = agent.execute.await_args.kwargs["input_data"]
     context = agent.execute.await_args.kwargs["context"]
-    assert input_data["current_message"] == "请在牛顿运动定律类似的两个资源"
+    assert input_data["current_message"] == payload["scenario"]["message"]
     assert input_data["user_id"] == "demo-user"
     assert input_data["recent_messages"] == []
     assert context["persist_recommendation"] is False
@@ -167,7 +167,7 @@ async def test_study_buddy_demo_endpoint_allows_anonymous_non_persistent_run(mon
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["scenario"]["message"] == "请推荐两个可以一起学习物理的学伴"
+    assert "牛顿运动定律" in payload["scenario"]["message"]
     assert payload["usage"] == {"total_tokens": 42}
     input_data = agent.execute.await_args.kwargs["input_data"]
     context = agent.execute.await_args.kwargs["context"]

@@ -265,7 +265,7 @@ class TestResourceRecommender:
         assert prepared["user_profile"]["current_level"] == "初级"
 
     @pytest.mark.asyncio
-    async def test_sql_candidates_are_graph_ranked_and_summary_keeps_execution_results(self, _patch_llm):
+    async def test_sql_candidates_are_graph_ranked_and_exposed_without_reflection_or_summary(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent
 
         plan_response = {
@@ -285,30 +285,7 @@ class TestResourceRecommender:
                 }
             ],
         }
-        reflection_response = {
-            "passed": True,
-            "issues": [],
-            "suggestion": "",
-            "coverage_score": 0.8,
-            "difficulty_match": 0.8,
-            "diversity_score": 0.8,
-        }
-        summary_response = {
-            "recommendation_text": "已完成 Python 函数资源推荐流程。",
-            "planning": {},
-            "resources": [],
-            "rationale": "根据计划调用工具后汇总。",
-            "sequence": [],
-            "reflection": {},
-            "tool_trace": [],
-        }
-        _patch_llm.chat_completion = AsyncMock(
-            side_effect=[
-                _mock_llm_response(plan_response),
-                _mock_llm_response(reflection_response),
-                _mock_llm_response(summary_response),
-            ]
-        )
+        _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(plan_response))
 
         agent = ResourceRecommenderAgent(llm=_patch_llm)
         agent.enrich_input = AsyncMock(side_effect=lambda data, _context: data)
@@ -350,7 +327,13 @@ class TestResourceRecommender:
         assert result["output"]["raw_response"] == result["output"]["recommendation_text"]
         assert result["output"]["final_response"] == result["output"]["recommendation_text"]
         assert result["output"]["resource_list"]["resources"] == result["output"]["resources"]
-        assert _patch_llm.chat_completion.call_count == 3
+        assert result["output"]["execution_context"]["ranking"]["effective_num"] == 1
+        assert result["output"]["resource_list"]["execution_context"] == result["output"]["execution_context"]
+        assert result["output"]["plan_history"] == [agent._parse_plan(plan_response)]
+        assert result["output"]["reflection_history"] == []
+        assert _patch_llm.chat_completion.call_count == 1
+        agent._log_execution.assert_not_awaited()
+        agent.post_process.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_sql_retrieval_tool_returns_resource_candidates(self, _patch_llm):
@@ -689,6 +672,9 @@ class TestResourceRecommender:
             "LEFT JOIN",
             "完整的并列目标列表",
             "本轮 current_message 中明确表达",
+            "召回优先",
+            "软偏好",
+            "缩为某个子概念",
         ):
             assert fragment in plan_prompt
         assert "分组 OR" in reflection_prompt
@@ -696,6 +682,25 @@ class TestResourceRecommender:
         assert "knowledge_points.subject" in reflection_prompt
         assert "num 缺失、不是整数、或不等于 2，必须输出 passed=false" in reflection_prompt
         assert "找两个类似资源" in plan_prompt
+
+    def test_prompt_json_keeps_chinese_characters_unescaped(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        prompt = ResourceRecommenderAgent(llm=_patch_llm)._render_stage_prompt(
+            "plan",
+            {
+                "current_message": "请推荐两个牛顿运动定律资源",
+                "recent_messages": [],
+                "target_knowledge": "牛顿运动定律",
+                "difficulty": "中级",
+                "learning_style": "交互式学习",
+                "diagnosis_result": {},
+                "user_profile": {},
+            },
+        )
+
+        assert '"current_message": "请推荐两个牛顿运动定律资源"' in prompt
+        assert "\\u8bf7" not in prompt
 
     @pytest.mark.parametrize(
         ("message", "sql", "schema", "num"),
@@ -741,7 +746,7 @@ class TestResourceRecommender:
         assert plan["tool_calls"][1]["input"].get("num") == num
 
     @pytest.mark.asyncio
-    async def test_persists_final_graph_or_similarity_fields(self, _patch_llm):
+    async def test_exposes_final_graph_fields_without_persistence(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent
 
         class DummyAsyncSession:
@@ -768,28 +773,7 @@ class TestResourceRecommender:
             "ranking_criteria": ["personality"],
             "tool_calls": [{"tool_name": "RankingTool", "input": {"schema": "personality", "num": 1}}],
         }
-        reflection_response = {
-            "passed": True,
-            "issues": [],
-            "suggestion": "",
-            "coverage_score": 1,
-            "difficulty_match": 1,
-            "diversity_score": 1,
-        }
-        summary_response = {
-            "recommendation_text": "推荐这一项资源。",
-            "resources": [],
-            "planning": {},
-            "reflection": {},
-            "tool_trace": [],
-        }
-        _patch_llm.chat_completion = AsyncMock(
-            side_effect=[
-                _mock_llm_response(plan_response),
-                _mock_llm_response(reflection_response),
-                _mock_llm_response(summary_response),
-            ]
-        )
+        _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(plan_response))
         tool_results = {
             "candidates": [self._candidate("res-1")],
             "ranked_resources": [{**self._candidate("res-1"), "graph_score": 0.82, "rank": 1}],
@@ -809,10 +793,12 @@ class TestResourceRecommender:
                 context={"conversation_id": "conv-ctx", "user_id": "user-1", "log_execution": False},
             )
 
-        record = dummy_session.added[0]
-        assert dummy_session.committed is True
-        assert record.rec_ranks["resources"][0]["graph_score"] == pytest.approx(0.82)
-        assert result["output"]["recommendation_id"] == record.id
+        assert dummy_session.added == []
+        assert dummy_session.committed is False
+        assert result["output"]["resources"][0]["graph_score"] == pytest.approx(0.82)
+        assert result["output"]["execution_context"]["ranking"]["candidate_count"] == 1
+        assert "recommendation_id" not in result["output"]
+        assert _patch_llm.chat_completion.call_count == 1
 
 
 class TestStudyBuddy:
@@ -828,8 +814,30 @@ class TestStudyBuddy:
             "knowledge_graph": {"牛顿运动定律": 0.9},
         }
 
+    def test_prompt_json_keeps_chinese_characters_unescaped(self, _patch_llm):
+        from app.services.agents.study_buddy import StudyBuddyAgent
+
+        prompt = StudyBuddyAgent(llm=_patch_llm)._render_stage_prompt(
+            "plan",
+            {
+                "current_message": "请推荐两个一起学习物理的学伴",
+                "recent_messages": [],
+                "topic": "物理",
+                "weak_points": [],
+                "learning_style": "交互式学习",
+                "current_level": "中级",
+                "grade_level": "高中",
+                "diagnosis_result": {},
+                "user_profile": {},
+                "reflection_result": {},
+            },
+        )
+
+        assert '"current_message": "请推荐两个一起学习物理的学伴"' in prompt
+        assert "\\u8bf7" not in prompt
+
     @pytest.mark.asyncio
-    async def test_sql_candidates_are_graph_ranked_and_summary_keeps_execution_results(self, _patch_llm):
+    async def test_sql_candidates_are_graph_ranked_and_exposed_without_reflection_or_summary(self, _patch_llm):
         from app.services.agents.study_buddy import StudyBuddyAgent
 
         plan = {
@@ -842,11 +850,7 @@ class TestStudyBuddy:
                 {"tool_name": "RankingTool", "input": {"schema": "personality", "num": 1}},
             ],
         }
-        reflection = {"passed": True, "issues": [], "suggestion": "", "coverage_score": 1, "compatibility_score": 1, "diversity_score": 1}
-        summary = {"recommendation_text": "推荐你先和小明一起复习。", "buddies": [], "planning": {}, "reflection": {}, "tool_trace": []}
-        _patch_llm.chat_completion = AsyncMock(
-            side_effect=[_mock_llm_response(plan), _mock_llm_response(reflection), _mock_llm_response(summary)]
-        )
+        _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(plan))
 
         agent = StudyBuddyAgent(llm=_patch_llm)
         candidate = self._candidate("u-456", nickname="小明")
@@ -863,11 +867,16 @@ class TestStudyBuddy:
         )
 
         output = result["output"]
-        assert _patch_llm.chat_completion.await_count == 3
+        assert _patch_llm.chat_completion.await_count == 1
         assert [item["tool"] for item in output["tool_trace"]] == ["SqlRetrievalTool", "RankingTool"]
         assert output["buddies"][0]["user_id"] == "u-456"
         assert output["buddies"][0]["graph_score"] == pytest.approx(0.91)
+        assert output["execution_context"]["ranking"]["effective_num"] == 1
+        assert output["buddy_list"]["execution_context"] == output["execution_context"]
         assert output["plan_history"] == [agent._parse_plan(plan)]
+        assert output["reflection_history"] == []
+        agent._log_execution.assert_not_awaited()
+        agent.post_process.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_sql_retrieval_tool_returns_buddy_candidates(self, _patch_llm):
