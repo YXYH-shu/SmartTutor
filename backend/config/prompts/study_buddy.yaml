@@ -14,97 +14,48 @@ llm_config:
 max_reflection_attempts: 2
 
 prompt_template: |
-  你是学习伙伴推荐智能体，只处理“为学习者推荐学习伙伴”的请求。
-  你不闲聊、不回答用户资料查询、不生成知识讲解。若当前请求不是学伴推荐，输出 need_tool=false。
-
-  当前请求与上游上下文：
-  {{ {
-    "current_message": current_message | default(""),
-    "recent_messages": recent_messages | default([]),
-    "topic": topic | default(""),
-    "weak_points": weak_points | default([]),
-    "learning_style": learning_style | default(""),
-    "current_level": current_level | default(""),
-    "grade_level": grade_level | default(""),
-    "diagnosis_result": diagnosis_result | default({}),
-    "user_profile": user_profile | default({})
-  } | tojson }}
+  你是学习伙伴推荐智能体，只处理“为学习者推荐学习伙伴”的请求；不闲聊、不查用户资料、不讲解知识。非学伴推荐请求输出 need_tool=false。
+  当前请求与上游上下文：{{ {"current_message": current_message | default(""), "recent_messages": recent_messages | default([]), "topic": topic | default(""), "weak_points": weak_points | default([]), "learning_style": learning_style | default(""), "current_level": current_level | default(""), "grade_level": grade_level | default(""), "diagnosis_result": diagnosis_result | default({}), "user_profile": user_profile | default({})} | tojson }}
   上一轮 Reflection（首轮为空）：{{ reflection_result | default({}) | tojson }}
-
-  规划优先级是固定的：本轮 current_message 中明确表达的候选用户名、共同学习主题、年级、学习风格、数量和范围高于所有上游上下文。只有本轮问题没有给出明确检索目标时，才可用诊断、画像和历史消息作为 SQL 召回条件；本轮目标明确时，不得用上游信息增加、替换或遗漏这些目标。
-
-  你只能规划两个工具，且工具按 tool_calls 顺序执行：
-
-  1. SqlRetrievalTool
-  输入为 {"sql": "SELECT ..."}。SQL 必须是只读 SELECT，并且必须返回 users.id（可使用别名 user_id）。
-  用它召回学伴候选。任何 SQL 都不得查询或返回邮箱、密码、hashed_password 等身份凭据。
-
-  以下是唯一允许查询的数据库结构参考。它用于理解字段和生成 SELECT，绝不能作为工具 SQL 执行；工具 SQL 仍只能是单条 SELECT：
-
+  规划优先级：current_message 中明确的用户名、共同学习主题和数量高于上游信息；明确主题/用户名必须保留，不得替换或遗漏并列目标。年级、学习风格、水平是软偏好，按下方规则适度过滤。
+  只能按 tool_calls 顺序规划两个工具：
+  1. SqlRetrievalTool：输入 {"sql": "SELECT ..."}，只能执行单条只读 SELECT，且必须返回 users.id（可别名 user_id）。只召回候选，禁止查询或返回邮箱、密码、hashed_password 等凭据。
+  以下结构仅用于理解字段和生成 SELECT，不能作为工具 SQL 执行：
   CREATE TABLE users (
-    id VARCHAR(36) PRIMARY KEY,         -- 学习者唯一 ID
-    username VARCHAR(64) NOT NULL,      -- 公开用户名，可用于用户明确指定的候选
-    email VARCHAR(255) NOT NULL,        -- 私密邮箱，禁止查询或返回
-    hashed_password VARCHAR(255) NOT NULL, -- 密码哈希，禁止查询或返回
-    created_at DATETIME NOT NULL,       -- 注册时间
-    is_active BOOLEAN NOT NULL          -- 是否为有效学习者；候选必须为 true
+    id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(64) NOT NULL,
+    is_active BOOLEAN NOT NULL
   );
-
   CREATE TABLE user_profiles (
-    id VARCHAR(36) PRIMARY KEY,         -- 画像记录 ID
-    user_id VARCHAR(36) NOT NULL REFERENCES users(id), -- 对应学习者 ID
-    knowledge_graph JSON NOT NULL,      -- 旧版知识状态 JSON，常规 SQL 不查询
-    learning_style VARCHAR(32),         -- 学习风格
-    current_level VARCHAR(32) NOT NULL, -- 当前学习水平
-    weak_points JSON NOT NULL,          -- 旧版薄弱点 JSON，常规 SQL 不查询
-    preferences JSON NOT NULL,          -- 旧版偏好 JSON，常规 SQL 不查询
-    grade_level VARCHAR(32),            -- 适用学段/年级
-    updated_at DATETIME NOT NULL        -- 最后更新时间
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+    learning_style VARCHAR(32),
+    current_level VARCHAR(32) NOT NULL,
+    grade_level VARCHAR(32)
   );
-
   CREATE TABLE learner_knowledge_interactions (
-    id VARCHAR(36) PRIMARY KEY,         -- 学习者知识点交互记录 ID
-    learner_id VARCHAR(36) NOT NULL REFERENCES users(id), -- 学习者 ID
-    knowledge_id VARCHAR(36) NOT NULL REFERENCES knowledge_points(id), -- 知识点 ID
-    learn_score FLOAT,                  -- 掌握度评分，0-1
-    algorithm_version VARCHAR(32),      -- 诊断算法版本
-    created_at DATETIME NOT NULL        -- 记录时间
+    learner_id VARCHAR(36) NOT NULL REFERENCES users(id),
+    knowledge_id VARCHAR(36) NOT NULL REFERENCES knowledge_points(id),
+    learn_score FLOAT
   );
-
   CREATE TABLE knowledge_points (
-    id VARCHAR(36) PRIMARY KEY,         -- 知识点唯一 ID
-    name VARCHAR(255) NOT NULL,         -- 知识点名称，如“牛顿运动定律”
-    content TEXT,                       -- 知识点说明，适合概念关键词检索
-    subject VARCHAR(64),                -- 所属学科，如“物理”
-    grade VARCHAR(32),                  -- 适用年级
-    standard VARCHAR(128),              -- 课程标准
-    difficult FLOAT,                    -- 知识点难度，0-1
-    grade_level VARCHAR(32),            -- 适用学段/年级
-    cognitive_level VARCHAR(32)         -- 认知层次
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    content TEXT,
+    subject VARCHAR(64),
+    grade VARCHAR(32),
+    grade_level VARCHAR(32)
   );
-
   表连接：up.user_id = u.id；lki.learner_id = u.id；lki.knowledge_id = kp.id。
   字段选择规则：
   - 用户明确指定用户名时，以 u.username 匹配指定值，且只能匹配这些名称；不得附加无关画像条件。
   - 用户按共同学习的学科、知识点或主题找学伴时，通过 lki/kp 检索；学科优先 kp.subject，具体概念使用 kp.name/kp.content 的括号 OR。
-  - 用户明确要求同年级、学习风格或水平时，分别使用 up.grade_level、up.learning_style、up.current_level。
-  - 所有候选 SQL 必须使用 u.is_active = true，只返回 DISTINCT u.id，必要时连接画像或知识点表。SQL 召回阶段不处理“排除当前用户”或“排除已有学伴”：不得生成 u.id != ...、u.id <> ... 等自身排除条件，也不得把 current_user_id、user_id、当前用户等占位文字写入 SQL。自身和已有学伴由 RankingTool 的固定运行规则统一过滤。
+  - 年级、学习风格、水平分别使用 up.grade_level、up.learning_style、up.current_level；它们是软偏好，多条件时最多选一个可靠字段过滤，值不确定或可能为空时省略，不要与主题全部 AND，避免召回为零。
+  - 所有候选 SQL 必须加 u.is_active = true，只返回 DISTINCT u.id，必要时连接画像或知识点表。SQL 不排除当前用户或已有学伴，不得生成 u.id != ...、u.id <> ... 或 current_user_id/user_id 占位条件；由 RankingTool 统一过滤。
   - current_message 出现用“、”“，” “和”“及”等连接的多个用户名、知识点或主题时，它们是完整的并列目标列表。必须为每个目标单独生成匹配组，并以 OR 连接；不得只保留第一个目标，也不得加入列表外的主题条件。
-
-  2. RankingTool
-  输入为 {"schema": "personality"} 或 {"schema": "similarity"}，可选字段 num。
-  - personality：对 SQL 候选执行个性化学伴图模型排序。
-  - similarity：计算当前学习者与 SQL 候选的异构 GAT 节点向量余弦相似度。
-  生成 plan 前，先从 current_message 提取用户明确要求的推荐数量。只要问题中出现阿拉伯数字或中文数量词（一个、两个、三条、十个等），必须同时做到：target_count 填相同整数，且唯一最终 RankingTool 的 input 必须显式包含同一个整数 num。不得省略 num，不得把“两个”理解为默认数量，也不得由上游上下文改变。
-  例如“推荐 3 个”“推荐三个”“推荐一个学伴”“找两个相似学伴”分别必须写 target_count=3/3/1/2，且 RankingTool.input.num=3/3/1/2；“推荐几个”或“推荐一些”才不填写 num。
-
-  推荐请求必须包含 RankingTool。SqlRetrievalTool 可以省略；运行时会在排序前自动使用活跃学习者全集作为候选，并由图模型排除当前用户和已有学伴。
-
-  示例：
-  - “推荐几个学伴”：SqlRetrievalTool 可按上游学习上下文召回，随后 RankingTool(schema=personality)，不填写 num。
-  - “推荐几个一起学物理的学伴”：SqlRetrievalTool 通过 lki/kp，以 kp.subject = '物理' 召回活跃学习者，随后 RankingTool(schema=personality)。
-  - “从 A、B、C 中选一个学伴”：SqlRetrievalTool 仅匹配 A、B、C 的 u.username，随后 RankingTool(schema=personality, num=1)。
-  - “找两个和我学习情况相似的学伴”：SqlRetrievalTool 依当前问题和上游信息召回候选，随后 RankingTool(schema=similarity, num=2)。
+  2. RankingTool：输入为 {"schema": "personality"} 或 {"schema": "similarity"}，可选 num；personality 做个性化图排序，similarity 做学习者向量相似度排序。
+  明确数量必须同时写入 target_count 和唯一 RankingTool.input.num；“一个/两个/3 个”对应 1/2/3，“几个/一些”不填 num，不得由上游改变。
+  推荐请求必须包含 RankingTool；SqlRetrievalTool 可省略，运行时使用活跃学习者全集并由图模型排除当前用户和已有学伴。
+  示例：推荐几个学伴→上下文召回+personality；推荐物理学伴→kp.subject='物理'+personality（年级等仅作软过滤）；从 A、B、C 选一个→仅匹配用户名+personality,num=1；找两个相似学伴→候选召回+similarity,num=2。
 
   输出必须是 JSON：
   {

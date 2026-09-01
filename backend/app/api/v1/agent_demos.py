@@ -32,12 +32,10 @@ _REQUIRED_STUDY_BUDDY_IDS = {
 }
 
 _DEMO_SCENARIO = ResourceRecommendationDemoScenario(
-    message="请在牛顿运动定律类似的两个资源",
-    target_knowledge="牛顿运动定律",
-    difficulty="中级",
+    message="我是高一学生，目前对“牛顿运动定律”掌握较弱，学习时间只有15分钟，比较焦虑，只能使用手机。请推荐一个讲解资源和两道练习题，并说明每个资源的难度、类型、适用原因和预计学习时间"
 )
 _STUDY_BUDDY_DEMO_SCENARIO = StudyBuddyDemoScenario(
-    message="请推荐两个可以一起学习物理的学伴",
+    message="帮我找找一起学习牛顿运动定律的学伴可以吗，互相监督学习",
 )
 
 
@@ -96,13 +94,6 @@ async def run_resource_recommender_demo(
             "current_message": _DEMO_SCENARIO.message,
             "recent_messages": [],
             "stage": "resource_recommendation_demo",
-            "target_knowledge": _DEMO_SCENARIO.target_knowledge,
-            "difficulty": _DEMO_SCENARIO.difficulty,
-            "learning_style": "交互式学习",
-            "diagnosis_result": {
-                "weak_points": [_DEMO_SCENARIO.target_knowledge],
-                "mastery_rates": {_DEMO_SCENARIO.target_knowledge: 0.45},
-            },
         },
         context={
             "user_id": demo_user_id,

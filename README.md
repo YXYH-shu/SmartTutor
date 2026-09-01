@@ -115,7 +115,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。当前分支�
 - **职责**:个性化学习资源推荐。通过 plan/tool calling 仅调度 SQL 召回和排序；个性化排序使用异构 GAT，资源相似度使用冻结文本向量(详见 [资源与学伴图推荐](#资源与学伴图推荐))
 - **输入依赖**:`diagnosis_result`(来自认知诊断)
 - **安全设计**:SQL 检索工具带表名白名单 + 关键字黑名单 + session 级只读保护(`PRAGMA query_only` / `SET TRANSACTION READ ONLY`)
-- **参数**:temperature=0.4
+- **参数**:temperature=0.3
 
 #### 5. StudyBuddyAgent — 学伴推荐 (v4.0)
 
@@ -319,17 +319,17 @@ P1～P5 推荐题映射到原项目预定义的 `learning_path` 字段，同时�
 
 ### 架构
 
-`resource_recommender` 与 `study_buddy` 使用相同的 plan/tool/reflection/summary 循环，运行时只保留 SQL 召回和排序两类工具：
+`resource_recommender` 与 `study_buddy` 均采用单次 Plan + 工具执行的低时延路径；运行时只保留 SQL 召回和排序两类工具：
 
 ```
 LLM(Plan) → SqlRetrievalTool → RankingTool(personality / similarity)
                  ↓
         Tool 执行(SQL 召回或对应全集兜底 → 排序)
                 ↓
-        LLM(Reflection) → 检查计划和执行事实,必要时重新规划
-                ↓
-        LLM(Summary) → 生成自然语言推荐文本 + 结构化结果列表
+  输出结构化结果到图上下文，供后续智能体生成回复
 ```
+
+Plan 提示词已压缩，SQL 召回以主题、指定资源或指定用户为硬条件；年级、时长、类型、学习风格和水平等字段作为可省略的软偏好，避免多条件同时筛选导致候选为空。推荐智能体输出会保留资源或学伴列表、`planning`、`tool_trace`、`execution_context`、`plan_history` 与空的 `reflection_history`；Stage 执行器将其写入 `context["resource_recommender"]` 或 `context["study_buddy"]`，供后续智能体读取。
 
 ### 真实模型集成
 

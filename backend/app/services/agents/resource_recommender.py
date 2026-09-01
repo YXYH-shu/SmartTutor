@@ -21,6 +21,10 @@ from app.services.response_context import (
 
 logger = logging.getLogger(__name__)
 _jinja_env = Environment(loader=BaseLoader(), undefined=StrictUndefined)
+_jinja_env.policies["json.dumps_kwargs"] = {
+    **_jinja_env.policies["json.dumps_kwargs"],
+    "ensure_ascii": False,
+}
 
 _DEFAULT_RESULT_COUNT = 5
 _MAX_RESULT_COUNT = 15
@@ -76,86 +80,101 @@ class ResourceRecommenderAgent(BaseAgent):
         context = context or {}
         trace_id = context.get("_trace_id") or input_data.get("_trace_id") or "no-trace"
         started_at = time.perf_counter()
-        # Plan against upstream context first. The database-backed profile enrichment is
-        # deliberately delayed until the request is confirmed as a recommendation.
         enriched = self._prepare_plan_input(input_data)
-        is_enriched = False
         usage: dict[str, Any] = {}
-        plan_history: list[dict[str, Any]] = []
-        reflection_history: list[dict[str, Any]] = []
-        tool_results = self._empty_tool_results()
-        reflection_result: dict[str, Any] = {}
-        boundary_only = False
-        max_attempts = max(1, self._safe_int(self.config.get("max_reflection_attempts"), 2))
 
         logger.info("[resource_recommender] start trace=%s", trace_id)
-        while True:
-            plan_payload, plan_usage = await self._generate_plan(enriched, reflection_result)
-            self._merge_usage(usage, plan_usage)
-            plan = self._parse_plan(plan_payload)
-            plan_history.append(plan)
 
-            if not plan["need_tool"]:
-                output = self._boundary_output(plan, plan_history, reflection_history)
-                boundary_only = True
-                break
-
-            if not is_enriched:
-                enriched = await self.enrich_input(enriched, context)
-                is_enriched = True
+        # Fast path: one LLM planning call followed by deterministic tool execution.
+        # stage_executor writes this output to context["resource_recommender"], where
+        # subsequent agents read resource_list/resources without requiring a summary call.
+        plan_payload, plan_usage = await self._generate_plan(enriched)
+        self._merge_usage(usage, plan_usage)
+        plan = self._parse_plan(plan_payload)
+        tool_results = self._empty_tool_results()
+        if plan["need_tool"]:
+            enriched = await self.enrich_input(enriched, context)
             tool_results = await self._execute_tools(plan, enriched)
-            reflection_result, reflection_usage = await self._reflection(plan, tool_results, enriched)
-            self._merge_usage(usage, reflection_usage)
-            reflection_history.append(reflection_result)
-            if reflection_result["passed"]:
-                output, summary_usage = await self._summary(
-                    plan,
-                    tool_results,
-                    enriched,
-                    reflection_result,
-                    plan_history=plan_history,
-                    reflection_history=reflection_history,
-                )
-                self._merge_usage(usage, summary_usage)
-                break
+        output = self._plan_and_tool_output(plan, tool_results)
 
-            if len(reflection_history) >= max_attempts:
-                reflection_result = self._force_pass_reflection(reflection_result)
-                reflection_history[-1] = reflection_result
-                output, summary_usage = await self._summary(
-                    plan,
-                    tool_results,
-                    enriched,
-                    reflection_result,
-                    plan_history=plan_history,
-                    reflection_history=reflection_history,
-                )
-                self._merge_usage(usage, summary_usage)
-                break
-
-        if not boundary_only and context.get("persist_recommendation", True):
-            recommendation_id = await self._persist_recommendation(
-                output, enriched, context, tool_results, plan_history, reflection_history
-            )
-            if recommendation_id:
-                output["recommendation_id"] = recommendation_id
-                output["resource_list"]["recommendation_id"] = recommendation_id
+        # Legacy full workflow retained for later restoration:
+        # is_enriched = False
+        # plan_history: list[dict[str, Any]] = []
+        # reflection_history: list[dict[str, Any]] = []
+        # tool_results = self._empty_tool_results()
+        # reflection_result: dict[str, Any] = {}
+        # boundary_only = False
+        # max_attempts = max(1, self._safe_int(self.config.get("max_reflection_attempts"), 2))
+        #
+        # while True:
+        #     plan_payload, plan_usage = await self._generate_plan(enriched, reflection_result)
+        #     self._merge_usage(usage, plan_usage)
+        #     plan = self._parse_plan(plan_payload)
+        #     plan_history.append(plan)
+        #
+        #     if not plan["need_tool"]:
+        #         output = self._boundary_output(plan, plan_history, reflection_history)
+        #         boundary_only = True
+        #         break
+        #
+        #     if not is_enriched:
+        #         enriched = await self.enrich_input(enriched, context)
+        #         is_enriched = True
+        #     tool_results = await self._execute_tools(plan, enriched)
+        #     reflection_result, reflection_usage = await self._reflection(plan, tool_results, enriched)
+        #     self._merge_usage(usage, reflection_usage)
+        #     reflection_history.append(reflection_result)
+        #     if reflection_result["passed"]:
+        #         output, summary_usage = await self._summary(
+        #             plan,
+        #             tool_results,
+        #             enriched,
+        #             reflection_result,
+        #             plan_history=plan_history,
+        #             reflection_history=reflection_history,
+        #         )
+        #         self._merge_usage(usage, summary_usage)
+        #         break
+        #
+        #     if len(reflection_history) >= max_attempts:
+        #         reflection_result = self._force_pass_reflection(reflection_result)
+        #         reflection_history[-1] = reflection_result
+        #         output, summary_usage = await self._summary(
+        #             plan,
+        #             tool_results,
+        #             enriched,
+        #             reflection_result,
+        #             plan_history=plan_history,
+        #             reflection_history=reflection_history,
+        #         )
+        #         self._merge_usage(usage, summary_usage)
+        #         break
+        #
+        # if not boundary_only and context.get("persist_recommendation", True):
+        #     recommendation_id = await self._persist_recommendation(
+        #         output, enriched, context, tool_results, plan_history, reflection_history
+        #     )
+        #     if recommendation_id:
+        #         output["recommendation_id"] = recommendation_id
+        #         output["resource_list"]["recommendation_id"] = recommendation_id
+        #
+        # elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        # if not boundary_only and context.get("log_execution", True):
+        #     await self._log_execution(
+        #         conversation_id=context.get("conversation_id", ""),
+        #         input_payload={
+        #             "input": enriched,
+        #             "plan_history": plan_history,
+        #             "reflection_history": reflection_history,
+        #             "tool_results": tool_results,
+        #         },
+        #         output_payload=output,
+        #         execution_time_ms=elapsed_ms,
+        #         turn_id=context.get("turn_id"),
+        #     )
+        # await self.post_process(output, context)
 
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
-        if not boundary_only and context.get("log_execution", True):
-            await self._log_execution(
-                conversation_id=context.get("conversation_id", ""),
-                input_payload={
-                    "input": enriched,
-                    "plan_history": plan_history,
-                    "reflection_history": reflection_history,
-                    "tool_results": tool_results,
-                },
-                output_payload=output,
-                execution_time_ms=elapsed_ms,
-                turn_id=context.get("turn_id"),
-            )
-        await self.post_process(output, context)
         logger.info("[resource_recommender] done trace=%s latency_ms=%s", trace_id, elapsed_ms)
         return {"agent": self.name, "output": output, "usage": usage, "latency_ms": elapsed_ms}
 
@@ -701,6 +720,32 @@ class ResourceRecommenderAgent(BaseAgent):
             "tool_trace": tool_results["tool_trace"],
         }
 
+    def _plan_and_tool_output(
+        self,
+        plan: dict[str, Any],
+        tool_results: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Expose deterministic recall/ranking results without more LLM calls."""
+        recommendation_text = (
+            "已完成资源检索与排序。"
+            if plan["need_tool"]
+            else plan["final_answer"] or _BOUNDARY_MESSAGE
+        )
+        return self._ensure_output_shape(
+            {
+                "recommendation_text": recommendation_text,
+                "planning": self._planning_from_plan(plan),
+                "resources": tool_results["ranked_resources"],
+                "rationale": plan["thought"],
+                "sequence": [],
+                "reflection": {},
+                "tool_trace": tool_results["tool_trace"],
+                "execution_context": tool_results["execution_context"],
+                "plan_history": [plan],
+                "reflection_history": [],
+            }
+        )
+
     def _boundary_output(
         self,
         plan: dict[str, Any],
@@ -776,12 +821,18 @@ class ResourceRecommenderAgent(BaseAgent):
         planning = output.get("planning") if isinstance(output.get("planning"), dict) else {}
         reflection = output.get("reflection") if isinstance(output.get("reflection"), dict) else {}
         trace = [item for item in output.get("tool_trace", []) if isinstance(item, dict)]
+        execution_context = (
+            output.get("execution_context")
+            if isinstance(output.get("execution_context"), dict)
+            else {}
+        )
         resource_list = {
             "resources": resources,
             "planning": planning,
             "rationale": str(output.get("rationale") or ""),
             "sequence": self._as_list(output.get("sequence")),
             "tool_trace": trace,
+            "execution_context": execution_context,
         }
         return {
             "recommendation_text": text_value,
@@ -796,6 +847,7 @@ class ResourceRecommenderAgent(BaseAgent):
             "sequence": resource_list["sequence"],
             "reflection": reflection,
             "tool_trace": trace,
+            "execution_context": execution_context,
             "plan_history": [item for item in output.get("plan_history", []) if isinstance(item, dict)],
             "reflection_history": [item for item in output.get("reflection_history", []) if isinstance(item, dict)],
         }
