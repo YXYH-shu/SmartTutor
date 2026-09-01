@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { X, Cpu } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { AgentStudio } from './AgentStudio';
 import { AgentDetailDrawer } from './AgentDetailDrawer';
+import { applyRuntimeLlmConfigs } from '@/services/agent.service';
 
 /**
  * AgentInfoPanel
@@ -15,6 +17,19 @@ import { AgentDetailDrawer } from './AgentDetailDrawer';
  */
 export function AgentInfoPanel() {
   const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
+  // 拉到后端真实 LLM 配置后自增,触发卡片/抽屉用覆盖后的 llmConfig 重渲染
+  const [, setRuntimeConfigVersion] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    applyRuntimeLlmConfigs().then((applied) => {
+      if (applied && !cancelled) setRuntimeConfigVersion((v) => v + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const close = () => setRightPanelOpen(false);
 
   return (

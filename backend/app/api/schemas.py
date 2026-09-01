@@ -240,3 +240,24 @@ class AgentTurnLogResponse(BaseModel):
     duration_ms: int
     is_focus: bool = False
     output: Optional[dict[str, Any]] = None
+
+
+# ── Agents ────────────────────────────────────────────────────────────
+
+
+class AgentConfigResponse(BaseModel):
+    """Effective LLM configuration of one registered agent.
+
+    Mirrors what ``BaseAgent.execute`` would actually use – YAML value when
+    present, global ``settings.llm`` fallback otherwise. Never contains
+    credentials.
+    """
+
+    agent: str
+    model: str
+    base_url: str
+    temperature: float
+    max_tokens: int
+    thinking: bool
+    timeout: int
+    max_retries: int

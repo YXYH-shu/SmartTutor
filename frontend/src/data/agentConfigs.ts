@@ -12,6 +12,8 @@
 
 export interface AgentLLMConfig {
   model: string;
+  /** openai SDK 归一化后的生效 base_url(已去尾部斜杠),运行时从后端拉取后填充 */
+  baseUrl?: string;
   temperature: number;
   maxTokens: number;
   timeout: number;
