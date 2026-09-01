@@ -2,8 +2,6 @@ name: "learning_path"
 description: "个性化学习路径规划智能体（基于认知诊断结果）"
 version: "3.0"
 llm_config:
-  model: "qwen3.5-35b-a3b"
-  base_url: "http://localhost:8000/v1"
   temperature: 0.3
   max_tokens: 1024
   timeout: 180

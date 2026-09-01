@@ -242,6 +242,23 @@ def test_feature_agent_token_limits_bound_followup_generation():
     assert LearningPathAgent(llm=MagicMock()).llm_config["max_tokens"] == 1024
 
 
+@pytest.mark.parametrize(
+    "agent_class",
+    [CognitiveDiagnosisAgent, LearningPathAgent],
+)
+def test_kt_lpp_explanation_agents_inherit_global_llm_endpoint_and_model(
+    monkeypatch,
+    agent_class,
+):
+    monkeypatch.setattr(settings.llm, "base_url", "https://llm.example.test/v1")
+    monkeypatch.setattr(settings.llm, "model_name", "global-explanation-model")
+
+    agent = agent_class()
+
+    assert str(agent.llm._client.base_url).rstrip("/") == "https://llm.example.test/v1"
+    assert agent.llm._default_model == "global-explanation-model"
+
+
 def test_diagnosis_prompt_context_is_bounded_for_learning_path():
     from app.services.lpp_integration import build_diagnosis_prompt_context
 
