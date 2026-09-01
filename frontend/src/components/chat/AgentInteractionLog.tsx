@@ -34,6 +34,34 @@ interface ExtractedFields {
 
 type SafetyBranch = 'PASS' | 'REJECT' | 'GUIDE';
 
+function normalizeTraceForDisplay(agentName: string, value: unknown): unknown {
+  if (agentName !== 'content_corrector' || typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  const normalizeCorrection = (
+    input: Record<string, unknown>,
+  ): Record<string, unknown> => ({
+    ...input,
+    issues:
+      Array.isArray(input.issues) && input.issues.length === 0
+        ? 'NO_ISSUES'
+        : input.issues,
+    patched_response:
+      typeof input.patched_response === 'string' && !input.patched_response.trim()
+        ? 'NO_PATCH_REQUIRED'
+        : input.patched_response,
+  });
+
+  const trace = normalizeCorrection(value as Record<string, unknown>);
+  if (typeof trace.content_corrector === 'object' && trace.content_corrector !== null) {
+    trace.content_corrector = normalizeCorrection(
+      trace.content_corrector as Record<string, unknown>,
+    );
+  }
+  return trace;
+}
+
 function SafetyBranchFlow({ value }: { value: Record<string, unknown> }) {
   const branch = String(value.raw_branch ?? '').toUpperCase() as SafetyBranch;
   if (!['PASS', 'REJECT', 'GUIDE'].includes(branch)) return null;
@@ -54,6 +82,22 @@ function SafetyBranchFlow({ value }: { value: Record<string, unknown> }) {
     ? guide.learning_options.map(String)
     : [];
   const recommendedOption = String(guide?.recommended_option ?? '');
+  const adjudicationReason = classifier.adjudication_reason;
+  const hasAdjudicationReason =
+    adjudicationReason !== null &&
+    adjudicationReason !== undefined &&
+    String(adjudicationReason).trim().length > 0;
+  const handlingModule = String(
+    safetyContext.handling_module ??
+      (branch === 'GUIDE' ? 'EDUCATIONAL_GUIDANCE_TRANSFORMATION_SKILL' : 'SAFETY_MONITOR'),
+  );
+  const transformationStatus = String(
+    safetyContext.transformation_status ??
+      (guide?.status === 'fallback' ? 'FALLBACK_COMPLETED' : 'COMPLETED'),
+  );
+  const triggerSource = String(
+    safetyContext.trigger_source ?? 'SAFETY_CLASSIFICATION',
+  );
   const branches: Array<{ id: SafetyBranch; label: string; Icon: typeof ShieldCheck }> = [
     { id: 'PASS', label: '进入学习', Icon: ShieldCheck },
     { id: 'REJECT', label: '安全回应', Icon: Ban },
@@ -89,13 +133,34 @@ function SafetyBranchFlow({ value }: { value: Record<string, unknown> }) {
           主模型：<b className="font-mono font-normal text-text-secondary">{String(classifier.primary_model_status ?? 'unknown')}</b>
         </span>
         <span className="text-text-tertiary">
-          裁决原因：<b className="font-mono font-normal text-text-secondary">{String(classifier.adjudication_reason ?? '无')}</b>
+          {branch === 'GUIDE'
+            ? '处理方式'
+            : hasAdjudicationReason
+              ? '裁决原因'
+              : '裁决状态'}：
+          <b className="font-mono font-normal text-text-secondary">
+            {branch === 'GUIDE'
+              ? handlingModule
+              : hasAdjudicationReason
+                ? String(adjudicationReason)
+                : 'NOT_REQUIRED'}
+          </b>
         </span>
         <span className="text-text-tertiary">
-          对象：<b className="font-mono font-normal text-text-secondary">{String(classifier.target_type ?? 'unknown')}</b>
+          {branch === 'GUIDE' ? '转化状态' : '对象'}：
+          <b className="font-mono font-normal text-text-secondary">
+            {branch === 'GUIDE'
+              ? transformationStatus
+              : String(classifier.target_type ?? 'unknown')}
+          </b>
         </span>
         <span className="text-text-tertiary">
-          程度：<b className="font-mono font-normal text-text-secondary">{String(classifier.harm_severity ?? 'none')}</b>
+          {branch === 'GUIDE' ? '触发来源' : '程度'}：
+          <b className="font-mono font-normal text-text-secondary">
+            {branch === 'GUIDE'
+              ? triggerSource
+              : String(classifier.harm_severity ?? 'none')}
+          </b>
         </span>
         <span className="text-text-tertiary">
           请求：<b className="font-mono font-normal text-text-secondary">{String(classifier.request_type ?? 'unknown')}</b>
@@ -176,6 +241,7 @@ function AgentTraceBlock({
   } catch {
     parsed = step.content;
   }
+  const displayParsed = normalizeTraceForDisplay(agentName, parsed);
   const fields = step.content ? extractFields(step.content) : null;
 
   // 稳定的 DOM id,供外部 scrollIntoView 定位
@@ -281,7 +347,7 @@ function AgentTraceBlock({
             {agentName === 'safety_monitor' && typeof parsed === 'object' && parsed !== null && (
               <SafetyBranchFlow value={parsed as Record<string, unknown>} />
             )}
-            {renderValue(parsed)}
+            {renderValue(displayParsed)}
           </div>
         )}
 

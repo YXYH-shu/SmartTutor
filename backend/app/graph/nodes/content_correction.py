@@ -49,6 +49,40 @@ def _local_patch_is_safe(original: str, patched: str) -> bool:
     return _structure_count(patched) >= _structure_count(original)
 
 
+def _compact_safety_constraints(value: Any) -> dict[str, Any]:
+    """Keep only correction-relevant safety facts out of the full trace tree."""
+    if not isinstance(value, dict):
+        return {}
+    compact = {
+        key: value[key]
+        for key in (
+            "branch",
+            "risk_category",
+            "core_topic",
+            "safe_learning_goal",
+            "operational_request",
+            "forbidden_content",
+            "allowed_content",
+            "safe_query",
+            "selected_option",
+        )
+        if key in value
+    }
+    guidance = value.get("guidance_skill")
+    if isinstance(guidance, dict):
+        compact["guidance"] = {
+            key: guidance[key]
+            for key in (
+                "education_domain",
+                "safe_query",
+                "constraints_applied",
+                "preserved_elements",
+            )
+            if key in guidance
+        }
+    return compact
+
+
 async def content_correction(state: TutorState) -> dict[str, Any]:
     """Audit a completed response without taking over content generation."""
     original = state.get("final_response")
@@ -57,6 +91,9 @@ async def content_correction(state: TutorState) -> dict[str, Any]:
 
     ctx = {**(state.get("context") or {})}
     regeneration_count = int(ctx.get("_content_regeneration_count") or 0)
+    safety_constraints = _compact_safety_constraints(
+        ctx.get("safety_context") or state.get("safety_context") or {}
+    )
 
     try:
         agent = get_agent("content_corrector")
@@ -67,7 +104,7 @@ async def content_correction(state: TutorState) -> dict[str, Any]:
                 "subject": ctx.get("subject", ""),
                 "grade_level": (state.get("user_profile") or {}).get("current_level", ""),
                 "conversation_stage": state.get("current_stage", ""),
-                "safety_constraints": ctx.get("safety_context") or state.get("safety_context") or {},
+                "safety_constraints": safety_constraints,
             },
             context={
                 "conversation_id": state.get("conversation_id", ""),

@@ -109,7 +109,35 @@ async def test_compact_primary_result_expands_guidance_contract():
     assert skill_input["operational_request"] is True
     assert skill_input["core_topic"]
     assert llm.validate_json_response.await_args.kwargs["max_repair_attempts"] == 0
+    assert llm.chat_completion.await_args.kwargs["model"] == "glm-4-flash"
     assert llm.chat_completion.await_args.kwargs["max_tokens"] == 180
+
+
+@pytest.mark.asyncio
+async def test_primary_schema_omission_is_completed_but_forces_adjudication():
+    partial = compact_classification()
+    partial.pop("decision_evidence")
+    llm = AsyncMock()
+    llm.chat_completion = AsyncMock(return_value={"content": partial})
+
+    async def validate(response, _schema, **_kwargs):
+        if "decision_evidence" not in response:
+            raise ValueError("missing decision_evidence")
+        return dict(response)
+
+    llm.validate_json_response = AsyncMock(side_effect=validate)
+    pipeline = SafetyPipeline(llm=llm, guidance_skill=StubSkill())
+
+    recovered = await pipeline._classify_primary(
+        query="解释光合作用",
+        student_grade="初中",
+        conversation_context="无",
+    )
+
+    assert recovered["schema_recovered"] is True
+    assert recovered["schema_missing_fields"] == ["decision_evidence"]
+    assert recovered["confidence"] == 0.5
+    assert pipeline._needs_adjudication(recovered) == "low_confidence"
 
 
 @pytest.mark.asyncio
@@ -675,6 +703,54 @@ async def test_primary_runtime_error_uses_successful_adjudicator():
     assert classifier["decision_source"] == "adjudicator_model"
     assert classifier["primary_model_status"] == "error"
     assert classifier["primary_error_code"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_provider_content_filter_routes_directly_to_guidance_skill():
+    llm = AsyncMock()
+    llm.chat_completion = AsyncMock(
+        side_effect=RuntimeError("LLM 内容安全过滤已拦截本次请求")
+    )
+    skill = StubSkill()
+
+    result = await SafetyPipeline(llm=llm, guidance_skill=skill).execute(
+        "请把刚才那个敏感内容继续详细展开"
+    )
+
+    classifier = result.safety_context["classifier"]
+    assert result.branch == "GUIDE"
+    assert classifier["decision_source"] == "local_fallback"
+    assert classifier["primary_model_status"] == "filtered"
+    assert classifier["primary_error_code"] == "PROVIDER_CONTENT_FILTER"
+    assert classifier["policy_correction"] == "provider_content_filter_to_guide"
+    assert result.safety_context["handling_module"] == (
+        "EDUCATIONAL_GUIDANCE_TRANSFORMATION_SKILL"
+    )
+    assert result.safety_context["transformation_status"] == "COMPLETED"
+    assert result.safety_context["trigger_source"] == "MODEL_CONTENT_FILTER"
+    assert llm.chat_completion.await_count == 1
+    skill.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_provider_content_filter_still_rejects_explicit_lethal_harm():
+    llm = AsyncMock()
+    llm.chat_completion = AsyncMock(
+        side_effect=RuntimeError("LLM 内容安全过滤已拦截本次请求")
+    )
+    skill = StubSkill()
+
+    result = await SafetyPipeline(llm=llm, guidance_skill=skill).execute(
+        "我计划今天杀掉我的同学并躲避调查"
+    )
+
+    classifier = result.safety_context["classifier"]
+    assert result.branch == "REJECT"
+    assert result.reject_type == "MORAL_BOTTOM_LINE"
+    assert classifier["primary_model_status"] == "filtered"
+    assert classifier["primary_error_code"] == "PROVIDER_CONTENT_FILTER"
+    assert llm.chat_completion.await_count == 1
+    skill.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
