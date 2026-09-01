@@ -614,7 +614,9 @@ SmartTutor/
 
 ### 模型端点配置说明(每个 agent 独立)
 
-每个 agent 的 `model` 和 `base_url` 在各自的 prompt YAML(`backend/config/prompts/*.yaml`)里独立配置,**不读 `.env` 中的全局 LLM 配置**。这样设计是因为不同 agent 适合不同模型——决策/安全用稳健的大模型、情感识别用微调过的 9B 专用模型、内容生成用通用大模型。切换部署环境时需要批量改这些 YAML。
+每个 agent 的 `model` 和 `base_url` 在各自的 prompt YAML(`backend/config/prompts/*.yaml`)里独立配置,优先于 `.env` 中的全局 LLM 配置。这样设计是因为不同 agent 适合不同模型——决策/安全用稳健的大模型、情感识别用微调过的 9B 专用模型、内容生成用通用大模型。切换部署环境时需要批量改这些 YAML。
+
+**例外**:`cognitive_diagnosis` 和 `learning_path` 的 YAML 中已不写 `model`/`base_url`,回落到 `.env` 全局 LLM 配置——云端环境无需改这两个 YAML 即可运行(此前硬编码本地 vLLM 端点导致 KT/LPP 调用失败)。可用 `GET /api/v1/agents/configs` 查询每个 agent 实际生效的配置。
 
 当前维护两套环境:
 
@@ -628,7 +630,7 @@ SmartTutor/
 - **云端环境**:通过 SSH 隧道转发到带 GPU 的服务器。启动方式:`bash scripts/start_emotion_tunnel.sh`(保持窗口常开)。本地端口默认 `28111`(避开 `8001` 常被占用的服务)。隧道中断时该 agent 会失败并报错,不影响其他 agent。
 - **本地 vLLM 环境**:直接用容器内第二个 vLLM 服务(端口 8001),不需要隧道。
 
-下方"方式一~四"涉及的 `.env` 全局 LLM 配置主要用于 `llm_client.py` 兜底,被 agent YAML 中的 `llm_config` 字段覆盖。
+下方"方式一~四"涉及的 `.env` 全局 LLM 配置是所有未在 YAML 中写明 `model`/`base_url` 的 agent(如 `cognitive_diagnosis`、`learning_path`)的实际生效配置,其余 agent 被 YAML 中的 `llm_config` 字段覆盖。
 
 ### 方式一:本地开发(默认 KT off,纯 LLM 模拟)
 
