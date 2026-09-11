@@ -94,9 +94,11 @@ app.add_middleware(LoggingMiddleware)
 app.add_middleware(RateLimiterMiddleware)
 
 # ── Routes ───────────────────────────────────────────────────────────
+from app.api.internal import internal_router
 from app.api.v1 import api_router
 
 app.include_router(api_router)
+app.include_router(internal_router)
 
 
 # ── Health check ─────────────────────────────────────────────────────
