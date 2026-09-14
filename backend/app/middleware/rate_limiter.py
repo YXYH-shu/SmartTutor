@@ -44,6 +44,16 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         bucket_key = f"{client_ip}:{path if '/chat/' in path else '*'}"
 
         if _is_limited(bucket_key, limit):
+            if path.startswith("/internal/v1/"):
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "code": "500001",
+                        "message": "接口限流，请稍后重试",
+                        "requestId": request.headers.get("requestId", ""),
+                        "data": {"retryAfterMs": WINDOW * 1000},
+                    },
+                )
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Too many requests. Please slow down."},

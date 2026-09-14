@@ -1,11 +1,12 @@
 """Stage handlers for processTutoringInteraction.
 
-本文件实现两个扩展 processingStage（规范 5.2 允许提供方在不改变既有语义
+本文件实现三个 processingStage（规范 5.2 允许提供方在不改变既有语义
 的前提下增加阶段）：
 
 - emotionAnalysis  – 情感分析，输出对象严格按规范 emotion 定义，
   后续组装标准 postResponse 阶段时可直接内嵌复用。
 - empathyResponse – 共情回复，不在规范最低输出内，纯扩展能力。
+- learningSupport – 资源推荐和学伴推荐，复用规范定义的学情支持阶段。
 
 handler 只做三件事：标准字段 → agent 输入映射、调 agent、agent 输出 →
 标准字段映射 + trace。模型超时/失败按规范 5.5 转 degraded 降级成功，
@@ -25,6 +26,7 @@ from app.api.internal.schemas import (
     EmpathyResult,
     Trace,
 )
+from app.api.internal.recommendations import RecommendationError, handle_learning_support
 from app.services.agents import get_agent
 
 logger = logging.getLogger(__name__)
@@ -177,9 +179,17 @@ async def handle_empathy_response(data: dict[str, Any], user_id: str) -> dict[st
     }
 
 
+async def handle_learning_support_stage(data: dict[str, Any], user_id: str) -> dict[str, Any]:
+    try:
+        return await handle_learning_support(data, user_id)
+    except RecommendationError as exc:
+        raise StageError(exc.code, exc.message) from exc
+
+
 StageHandler = Callable[[dict[str, Any], str], Awaitable[dict[str, Any]]]
 
 STAGE_HANDLERS: dict[str, StageHandler] = {
     "emotionAnalysis": handle_emotion_analysis,
     "empathyResponse": handle_empathy_response,
+    "learningSupport": handle_learning_support_stage,
 }

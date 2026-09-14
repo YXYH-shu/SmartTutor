@@ -174,6 +174,8 @@ class GraphRecommender:
         learner_id: str,
         candidate_resource_ids: Sequence[str],
         k: int,
+        *,
+        history_resource_ids: Sequence[str] | None = None,
     ) -> list[RankedItem]:
         snapshot = self._require_snapshot()
         graph_data = snapshot.graph_data
@@ -187,12 +189,60 @@ class GraphRecommender:
         ]
         if not candidate_indexes or k <= 0:
             return []
-        encoded_nodes = self._forward_graph(snapshot.graph)
+        graph = (
+            self._graph_with_resource_history(snapshot, learner_id, history_resource_ids)
+            if history_resource_ids
+            else snapshot.graph
+        )
+        encoded_nodes = self._forward_graph(graph)
         candidates = encoded_nodes["resource"][candidate_indexes]
         learner = encoded_nodes["learner"][learner_index].unsqueeze(0).expand(candidates.size(0), -1)
         with torch.no_grad():
             scores = torch.sigmoid(self._resource_scorer(learner, candidates).view(-1))
         return self._top_k(graph_data.node_ids["resource"], candidate_indexes, scores, k)
+
+    @staticmethod
+    def _graph_with_resource_history(
+        snapshot: GraphSnapshot,
+        learner_id: str,
+        history_resource_ids: Sequence[str],
+    ) -> Any:
+        """Replace one learner's resource edges on a request-local graph copy."""
+        graph_data = snapshot.graph_data
+        learner_index = graph_data.id_to_index["learner"].get(learner_id)
+        if learner_index is None:
+            raise KeyError(f"unknown learner: {learner_id}")
+
+        resource_indexes = graph_data.id_to_index["resource"]
+        resource_indexes = [
+            resource_indexes[resource_id]
+            for resource_id in dict.fromkeys(history_resource_ids)
+            if resource_id in resource_indexes
+        ]
+        graph = snapshot.graph.clone()
+        relations = (
+            (("learner", "interacted_with", "resource"), 0, learner_index, resource_indexes),
+            (("resource", "rev_interacted_with", "learner"), 1, learner_index, resource_indexes),
+        )
+        for relation, learner_dimension, learner_value, resource_values in relations:
+            edge_index = graph[relation].edge_index
+            retained_edges = edge_index[:, edge_index[learner_dimension] != learner_value]
+            if resource_values:
+                if learner_dimension == 0:
+                    replacement_edges = torch.tensor(
+                        [[learner_value] * len(resource_values), resource_values],
+                        dtype=edge_index.dtype,
+                        device=edge_index.device,
+                    )
+                else:
+                    replacement_edges = torch.tensor(
+                        [resource_values, [learner_value] * len(resource_values)],
+                        dtype=edge_index.dtype,
+                        device=edge_index.device,
+                    )
+                retained_edges = torch.cat((retained_edges, replacement_edges), dim=1)
+            graph[relation].edge_index = retained_edges
+        return graph
 
     def rank_peers(
         self,
@@ -201,6 +251,7 @@ class GraphRecommender:
         k: int,
         *,
         include_existing_partners: bool = False,
+        history_partner_ids: Sequence[str] | None = None,
     ) -> list[RankedItem]:
         snapshot = self._require_snapshot()
         graph_data = snapshot.graph_data
@@ -217,12 +268,55 @@ class GraphRecommender:
         ]
         if not candidate_indexes or k <= 0:
             return []
-        encoded_nodes = self._forward_graph(snapshot.graph)
+        graph = (
+            self._graph_with_partner_history(snapshot, learner_id, history_partner_ids)
+            if history_partner_ids
+            else snapshot.graph
+        )
+        encoded_nodes = self._forward_graph(graph)
         candidates = encoded_nodes["learner"][candidate_indexes]
         learner = encoded_nodes["learner"][learner_index].unsqueeze(0).expand(candidates.size(0), -1)
         with torch.no_grad():
             scores = torch.sigmoid(symmetric_logits(self._peer_scorer, learner, candidates).view(-1))
         return self._top_k(graph_data.node_ids["learner"], candidate_indexes, scores, k)
+
+    @staticmethod
+    def _graph_with_partner_history(
+        snapshot: GraphSnapshot,
+        learner_id: str,
+        history_partner_ids: Sequence[str],
+    ) -> Any:
+        """Replace one learner's partner edges on a request-local graph copy."""
+        graph_data = snapshot.graph_data
+        learner_index = graph_data.id_to_index["learner"].get(learner_id)
+        if learner_index is None:
+            raise KeyError(f"unknown learner: {learner_id}")
+
+        learner_indexes = graph_data.id_to_index["learner"]
+        partner_indexes = [
+            learner_indexes[partner_id]
+            for partner_id in dict.fromkeys(history_partner_ids)
+            if partner_id in learner_indexes and partner_id != learner_id
+        ]
+        graph = snapshot.graph.clone()
+        relation = ("learner", "partnered_with", "learner")
+        edge_index = graph[relation].edge_index
+        retained_edges = edge_index[
+            :,
+            (edge_index[0] != learner_index) & (edge_index[1] != learner_index),
+        ]
+        if partner_indexes:
+            replacement_edges = torch.tensor(
+                [
+                    [learner_index] * len(partner_indexes) + partner_indexes,
+                    partner_indexes + [learner_index] * len(partner_indexes),
+                ],
+                dtype=edge_index.dtype,
+                device=edge_index.device,
+            )
+            retained_edges = torch.cat((retained_edges, replacement_edges), dim=1)
+        graph[relation].edge_index = retained_edges
+        return graph
 
     def similar_peers(
         self,
@@ -231,6 +325,7 @@ class GraphRecommender:
         k: int,
         *,
         include_existing_partners: bool = False,
+        history_partner_ids: Sequence[str] | None = None,
     ) -> list[RankedItem]:
         """Rank peers by cosine similarity of GAT-aggregated learner embeddings."""
         snapshot = self._require_snapshot()
@@ -246,7 +341,12 @@ class GraphRecommender:
             and candidate_id != learner_id
             and (include_existing_partners or candidate_id not in partners)
         ]
-        encoded_nodes = self._forward_graph(snapshot.graph)
+        graph = (
+            self._graph_with_partner_history(snapshot, learner_id, history_partner_ids)
+            if history_partner_ids
+            else snapshot.graph
+        )
+        encoded_nodes = self._forward_graph(graph)
         return self._cosine_top_k(
             graph_data.node_ids["learner"],
             candidate_indexes,

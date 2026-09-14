@@ -365,7 +365,22 @@ class StudyBuddyAgent(BaseAgent):
         try:
             from algorithm.graph_recommender import get_graph_recommender
 
-            scores = get_graph_recommender().rank_peers(learner_id, list(candidate_by_id), k=len(candidate_by_id))
+            history_user_ids = input_data.get("history_user_ids")
+            rank_kwargs: dict[str, Any] = {}
+            if isinstance(history_user_ids, (list, tuple, set)):
+                history_user_ids = [
+                    user_id.strip()
+                    for user_id in history_user_ids
+                    if isinstance(user_id, str) and user_id.strip()
+                ]
+                if history_user_ids:
+                    rank_kwargs["history_partner_ids"] = history_user_ids
+            scores = get_graph_recommender().rank_peers(
+                learner_id,
+                list(candidate_by_id),
+                k=len(candidate_by_id),
+                **rank_kwargs,
+            )
         except Exception as exc:
             logger.warning("[study_buddy] graph ranking unavailable: %s", exc)
             return None
@@ -387,7 +402,22 @@ class StudyBuddyAgent(BaseAgent):
         try:
             from algorithm.graph_recommender import get_graph_recommender
 
-            scores = get_graph_recommender().similar_peers(learner_id, list(candidate_by_id), k=len(candidate_by_id))
+            history_user_ids = input_data.get("history_user_ids")
+            rank_kwargs: dict[str, Any] = {}
+            if isinstance(history_user_ids, (list, tuple, set)):
+                history_user_ids = [
+                    user_id.strip()
+                    for user_id in history_user_ids
+                    if isinstance(user_id, str) and user_id.strip()
+                ]
+                if history_user_ids:
+                    rank_kwargs["history_partner_ids"] = history_user_ids
+            scores = get_graph_recommender().similar_peers(
+                learner_id,
+                list(candidate_by_id),
+                k=len(candidate_by_id),
+                **rank_kwargs,
+            )
         except Exception as exc:
             logger.warning("[study_buddy] graph similarity unavailable: %s", exc)
             return None

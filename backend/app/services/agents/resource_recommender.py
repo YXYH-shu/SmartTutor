@@ -481,7 +481,22 @@ class ResourceRecommenderAgent(BaseAgent):
         try:
             from algorithm.graph_recommender import get_graph_recommender
 
-            scores = get_graph_recommender().rank_resources(learner_id, list(candidate_by_id), k=len(candidate_by_id))
+            history_resource_ids = input_data.get("history_resource_ids")
+            rank_kwargs: dict[str, Any] = {}
+            if isinstance(history_resource_ids, (list, tuple, set)):
+                history_resource_ids = [
+                    resource_id.strip()
+                    for resource_id in history_resource_ids
+                    if isinstance(resource_id, str) and resource_id.strip()
+                ]
+                if history_resource_ids:
+                    rank_kwargs["history_resource_ids"] = history_resource_ids
+            scores = get_graph_recommender().rank_resources(
+                learner_id,
+                list(candidate_by_id),
+                k=len(candidate_by_id),
+                **rank_kwargs,
+            )
         except Exception as exc:
             logger.warning("[resource_recommender] graph ranking unavailable: %s", exc)
             return None

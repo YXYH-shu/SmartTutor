@@ -443,6 +443,28 @@ class TestResourceRecommender:
         assert [item["id"] for item in fallback_ranked] == ["r-0", "r-1"]
         assert fallback_metadata["ranking_backend"] == "deterministic_fallback"
 
+    def test_graph_ranking_forwards_history_resource_ids(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        graph = MagicMock()
+        graph.rank_resources.return_value = [SimpleNamespace(id="res-1", score=0.91)]
+        candidate = self._candidate("res-1")
+
+        with patch("algorithm.graph_recommender.get_graph_recommender", return_value=graph):
+            ranked = agent._rank_with_graph(
+                [candidate],
+                {"user_id": "learner-1", "history_resource_ids": ["history-1", "history-2"]},
+            )
+
+        assert ranked == [{**candidate, "graph_score": pytest.approx(0.91)}]
+        graph.rank_resources.assert_called_once_with(
+            "learner-1",
+            ["res-1"],
+            k=1,
+            history_resource_ids=["history-1", "history-2"],
+        )
+
     @pytest.mark.asyncio
     async def test_similarity_ranking_keeps_independent_multi_anchor_pairs(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent
@@ -835,6 +857,40 @@ class TestStudyBuddy:
 
         assert '"current_message": "请推荐两个一起学习物理的学伴"' in prompt
         assert "\\u8bf7" not in prompt
+
+    def test_graph_ranking_forwards_history_partner_ids(self, _patch_llm):
+        from app.services.agents.study_buddy import StudyBuddyAgent
+
+        agent = StudyBuddyAgent(llm=_patch_llm)
+        graph = MagicMock()
+        graph.rank_peers.return_value = [SimpleNamespace(id="u-2", score=0.91)]
+        graph.similar_peers.return_value = [SimpleNamespace(id="u-2", score=0.8)]
+        candidate = self._candidate("u-2")
+
+        with patch("algorithm.graph_recommender.get_graph_recommender", return_value=graph):
+            ranked = agent._rank_with_graph(
+                [candidate],
+                {"user_id": "u-1", "history_user_ids": ["u-3", "u-4"]},
+            )
+            similar = agent._similarity_with_graph(
+                [candidate],
+                {"user_id": "u-1", "history_user_ids": ["u-3", "u-4"]},
+            )
+
+        assert ranked is not None
+        assert similar is not None
+        graph.rank_peers.assert_called_once_with(
+            "u-1",
+            ["u-2"],
+            k=1,
+            history_partner_ids=["u-3", "u-4"],
+        )
+        graph.similar_peers.assert_called_once_with(
+            "u-1",
+            ["u-2"],
+            k=1,
+            history_partner_ids=["u-3", "u-4"],
+        )
 
     @pytest.mark.asyncio
     async def test_sql_candidates_are_graph_ranked_and_exposed_without_reflection_or_summary(self, _patch_llm):

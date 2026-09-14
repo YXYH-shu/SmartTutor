@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.api.internal import internal_router  # noqa: E402
 import app.api.internal.handlers as handlers  # noqa: E402
+import app.api.internal.recommendations as recommendations  # noqa: E402
+import app.middleware.rate_limiter as rate_limiter  # noqa: E402
 
 
 HEADERS = {
@@ -123,6 +125,31 @@ def test_request_id_echoed_on_error() -> None:
             json={},
         )
     assert resp.json()["requestId"] == "req-echo-42"
+
+
+def test_internal_rate_limit_uses_contract_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    app.add_middleware(rate_limiter.RateLimiterMiddleware)
+
+    @app.post("/internal/v1/processTutoringInteraction")
+    async def _endpoint() -> dict[str, str]:
+        return {"unexpected": "route execution"}
+
+    monkeypatch.setattr(rate_limiter, "_is_limited", lambda key, limit: True)
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json={}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "code": "500001",
+        "message": "接口限流，请稍后重试",
+        "requestId": HEADERS["requestId"],
+        "data": {"retryAfterMs": rate_limiter.WINDOW * 1000},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -358,3 +385,222 @@ def test_unexpected_handler_error_returns_900000(
     body = resp.json()
     assert body["code"] == "900000"
     assert body["requestId"] == HEADERS["requestId"]
+
+
+# ---------------------------------------------------------------------------
+# learningSupport recommendation adapter
+# ---------------------------------------------------------------------------
+
+def _learning_support_payload(scenario_code: str) -> dict[str, Any]:
+    return {
+        "processingStage": "learningSupport",
+        "data": {
+            "scenarioCode": scenario_code,
+            "userContext": {
+                "stage": "seniorHighSchool",
+                "grade": "grade10",
+                "subject": "physics",
+                "learnerStateSummary": "牛顿运动定律掌握不足",
+            },
+            "learningEvidence": [
+                {
+                    "knowledgePointId": "kp-newton-law",
+                    "responseResult": "incorrect",
+                    "occurredAt": "2026-09-13T09:00:00Z",
+                }
+            ],
+        },
+    }
+
+
+def test_learning_support_resource_uses_agent_planning_without_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ResourceAgent:
+        version = "resource-test"
+
+        async def execute(
+            self, input_data: dict[str, Any], context: dict[str, Any]
+        ) -> dict[str, Any]:
+            assert input_data["user_id"] == HEADERS["userId"]
+            assert input_data["target_knowledge"] == ["kp-newton-law"]
+            assert input_data["current_message"] == "Recommend a Newton law resource"
+            assert input_data["recent_messages"] == [
+                {"role": "student", "content": "I still cannot distinguish force and acceleration."},
+                {"role": "assistant", "content": "Try a targeted quiz next."},
+                {"role": "assistant", "content": "The learner previously received a basic explanation."},
+            ]
+            assert input_data["draft_answer"] == "The learner previously received a basic explanation."
+            assert input_data["history_resource_ids"] == ["res-1"]
+            assert context == {"persist_recommendation": False, "log_execution": False}
+            return {
+                "output": {
+                    "resources": [
+                        {"id": "res-1", "title": "匀速直线运动", "type": "video"}
+                    ],
+                    "execution_context": {"ranking": {"ranking_backend": "graph"}},
+                }
+            }
+
+    monkeypatch.setattr(recommendations, "get_agent", lambda name: ResourceAgent())
+
+    payload = _learning_support_payload("resourceRecommendation")
+    payload["data"]["interactionContext"] = {
+        "query": "Recommend a Newton law resource",
+        "draftAnswer": "The learner previously received a basic explanation.",
+        "history": [
+            {
+                "role": "student",
+                "content": "I still cannot distinguish force and acceleration.",
+                "resourceId": "res-1",
+            },
+            {"role": "assistant", "text": "Try a targeted quiz next."},
+        ],
+    }
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    body = response.json()
+    assert body["code"] == "000000"
+    assert [item["resourceId"] for item in body["data"]["recommendations"]] == ["res-1"]
+
+
+def test_learning_support_resource_candidates_bypass_planning_and_sql(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = MagicMock()
+    agent.version = "resource-test"
+    agent.execute = AsyncMock()
+    agent._load_all_resource_candidates = AsyncMock()
+    agent._rows_to_resource_candidates = AsyncMock(
+        return_value=[{"id": "res-2", "title": "候选资源"}]
+    )
+    agent._ranking_tool = AsyncMock(
+        return_value=(
+            [{"id": "res-2", "title": "候选资源", "graph_score": 0.91}],
+            [{"id": "res-2", "title": "候选资源"}],
+            {"ranking_backend": "graph"},
+        )
+    )
+    monkeypatch.setattr(recommendations, "get_agent", lambda name: agent)
+
+    payload = _learning_support_payload("resourceRecommendation")
+    payload["data"]["candidateResources"] = [{"resourceId": "res-2"}]
+    payload["data"]["interactionContext"] = {"history": [{"resourceId": "res-1"}]}
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    assert response.json()["code"] == "000000"
+    assert [item["resourceId"] for item in response.json()["data"]["recommendations"]] == ["res-2"]
+    agent._rows_to_resource_candidates.assert_awaited_once_with([{"resource_id": "res-2"}])
+    ranking_input = agent._ranking_tool.await_args.args[2]
+    assert ranking_input["history_resource_ids"] == ["res-1"]
+    agent.execute.assert_not_awaited()
+    agent._load_all_resource_candidates.assert_not_awaited()
+
+
+def test_learning_support_study_buddy_uses_agent_planning_without_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StudyBuddyAgent:
+        version = "buddy-test"
+
+        async def execute(
+            self, input_data: dict[str, Any], context: dict[str, Any]
+        ) -> dict[str, Any]:
+            assert input_data["user_id"] == HEADERS["userId"]
+            assert input_data["history_user_ids"] == ["buddy-001"]
+            assert context == {"persist_recommendation": False, "log_execution": False}
+            return {
+                "output": {
+                    "buddies": [
+                        {
+                            "user_id": "buddy-002",
+                            "nickname": "小明",
+                            "complement_score": 0.88,
+                        }
+                    ],
+                    "execution_context": {"ranking": {"ranking_backend": "graph"}},
+                }
+            }
+
+    monkeypatch.setattr(recommendations, "get_agent", lambda name: StudyBuddyAgent())
+
+    payload = _learning_support_payload("studyBuddyRecommendation")
+    payload["data"]["interactionContext"] = {"history": [{"userId": "buddy-001"}]}
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    body = response.json()
+    assert body["code"] == "000000"
+    assert body["data"]["recommendations"] == []
+    buddies = body["data"]["ext"]["studyBuddyRecommendation"]["buddies"]
+    assert buddies[0]["userId"] == "buddy-002"
+
+
+def test_learning_support_study_buddy_candidates_bypass_planning_and_sql(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = MagicMock()
+    agent.version = "buddy-test"
+    agent.execute = AsyncMock()
+    agent._fetch_buddy_details = AsyncMock(
+        return_value=[{"user_id": "buddy-002", "nickname": "小明"}]
+    )
+    agent._ranking_tool = AsyncMock(
+        return_value=(
+            [{"user_id": "buddy-002", "nickname": "小明", "graph_score": 0.91}],
+            [{"user_id": "buddy-002", "nickname": "小明"}],
+            {"ranking_backend": "graph"},
+        )
+    )
+    monkeypatch.setattr(recommendations, "get_agent", lambda name: agent)
+
+    payload = _learning_support_payload("studyBuddyRecommendation")
+    payload["data"]["candidateUsers"] = [{"userId": "buddy-002"}]
+    payload["data"]["interactionContext"] = {"history": [{"userId": "buddy-001"}]}
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    assert response.json()["code"] == "000000"
+    buddies = response.json()["data"]["ext"]["studyBuddyRecommendation"]["buddies"]
+    assert [buddy["userId"] for buddy in buddies] == ["buddy-002"]
+    agent._fetch_buddy_details.assert_awaited_once_with(["buddy-002"])
+    ranking_input = agent._ranking_tool.await_args.args[2]
+    assert ranking_input["history_user_ids"] == ["buddy-001"]
+    agent.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("interaction", [{"query": 1}, {"history": False}])
+def test_learning_support_rejects_invalid_interaction_context(
+    interaction: dict[str, Any],
+) -> None:
+    payload = _learning_support_payload("resourceRecommendation")
+    payload["data"]["interactionContext"] = interaction
+
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    assert response.json()["code"] == "200002"
+
+
+def test_learning_support_requires_complete_learning_evidence() -> None:
+    payload = _learning_support_payload("resourceRecommendation")
+    del payload["data"]["learningEvidence"][0]["occurredAt"]
+
+    with _client() as client:
+        response = client.post(
+            "/internal/v1/processTutoringInteraction", headers=HEADERS, json=payload
+        )
+
+    assert response.json()["code"] == "200001"
