@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -24,6 +25,7 @@ _jinja_env.policies["json.dumps_kwargs"] = {
 
 _DEFAULT_RESULT_COUNT = 5
 _MAX_RESULT_COUNT = 15
+_DEFAULT_PLAN_TIMEOUT_SECONDS = 20.0
 _BOUNDARY_MESSAGE = "该智能体仅处理学习伙伴推荐，请说明希望寻找的学习伙伴或共同学习目标。"
 _ALLOWED_TOOL_NAMES = {"SqlRetrievalTool", "RankingTool"}
 _ALLOWED_RANKING_SCHEMAS = {"personality", "similarity"}
@@ -70,9 +72,32 @@ class StudyBuddyAgent(BaseAgent):
         # Fast path: one LLM planning call followed by deterministic tool execution.
         # stage_executor writes this output to context["study_buddy"], where
         # subsequent agents read buddy_list/buddies without a summary call.
-        plan_payload, plan_usage = await self._generate_plan(enriched)
-        self._merge_usage(usage, plan_usage)
-        plan = self._parse_plan(plan_payload)
+        try:
+            plan_payload, plan_usage = await asyncio.wait_for(
+                self._generate_plan(enriched),
+                timeout=self._plan_timeout_seconds(),
+            )
+            self._merge_usage(usage, plan_usage)
+            if not plan_payload:
+                raise ValueError("empty_plan_response")
+            if not isinstance(plan_payload.get("need_tool"), bool):
+                raise ValueError("invalid_plan_schema")
+            plan = self._parse_plan(plan_payload)
+            if plan["need_tool"] and not self._has_ranking_call(plan):
+                raise ValueError("missing_valid_ranking_tool")
+        except TimeoutError:
+            logger.warning("[study_buddy] plan timed out; using full-catalog ranking fallback")
+            plan = self._fallback_plan(enriched, reason="plan_timeout", error_type="TimeoutError")
+        except Exception as exc:
+            logger.warning(
+                "[study_buddy] plan failed (%s); using full-catalog ranking fallback",
+                type(exc).__name__,
+            )
+            plan = self._fallback_plan(
+                enriched,
+                reason=self._plan_failure_reason(exc),
+                error_type=type(exc).__name__,
+            )
         tool_results = self._empty_tool_results()
         if plan["need_tool"]:
             enriched = await self.enrich_input(enriched, context)
@@ -185,6 +210,67 @@ class StudyBuddyAgent(BaseAgent):
         prompt_data["reflection_result"] = reflection_result or {}
         return await self._call_llm_json("plan", prompt_data)
 
+    def _plan_timeout_seconds(self) -> float:
+        try:
+            value = float(self.config.get("plan_timeout_seconds", _DEFAULT_PLAN_TIMEOUT_SECONDS))
+        except (TypeError, ValueError):
+            value = _DEFAULT_PLAN_TIMEOUT_SECONDS
+        return max(1.0, value)
+
+    @staticmethod
+    def _has_ranking_call(plan: dict[str, Any]) -> bool:
+        return any(call.get("tool_name") == "RankingTool" for call in plan.get("tool_calls", []))
+
+    def _fallback_plan(
+        self,
+        input_data: dict[str, Any],
+        *,
+        reason: str,
+        error_type: str,
+    ) -> dict[str, Any]:
+        target_count = self._extract_requested_count(str(input_data.get("current_message") or ""))
+        ranking_input: dict[str, Any] = {"schema": "personality"}
+        if target_count is not None:
+            ranking_input["num"] = target_count
+        return {
+            "need_tool": True,
+            "thought": "规划模型不可用，跳过 SQL 召回并使用全量活跃学习者进行个性化排序。",
+            "final_answer": "",
+            "target_count": target_count or 0,
+            "recall_strategy": "plan_fallback_full_catalog",
+            "ranking_criteria": ["personality"],
+            "tool_calls": [
+                {
+                    "tool_name": "RankingTool",
+                    "input": ranking_input,
+                    "purpose": "规划失败后对全量活跃学习者执行个性化排序",
+                }
+            ],
+            "plan_fallback": {
+                "applied": True,
+                "reason": reason,
+                "error_type": error_type,
+            },
+        }
+
+    @staticmethod
+    def _plan_failure_reason(exc: Exception) -> str:
+        message = str(exc)
+        if message in {"empty_plan_response", "invalid_plan_schema", "missing_valid_ranking_tool"}:
+            return message
+        return "plan_error"
+
+    @staticmethod
+    def _extract_requested_count(message: str) -> int | None:
+        digit_match = re.search(r"(?<!\d)(\d{1,2})\s*(?:个|位|名|组)?", message)
+        if digit_match:
+            return min(max(int(digit_match.group(1)), 1), _MAX_RESULT_COUNT)
+        chinese_match = re.search(r"([一二两三四五六七八九十])\s*(?:个|位|名|组)", message)
+        if not chinese_match:
+            return None
+        values = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+        return values[chinese_match.group(1)]
+
     async def _reflection(
         self,
         plan: dict[str, Any],
@@ -262,6 +348,18 @@ class StudyBuddyAgent(BaseAgent):
             "sql_result_count": 0,
             "ranking": {},
         }
+        plan_fallback = plan.get("plan_fallback")
+        if isinstance(plan_fallback, dict) and plan_fallback.get("applied") is True:
+            execution_context["plan_fallback"] = dict(plan_fallback)
+            trace.append(
+                {
+                    "tool": "PlanFallback",
+                    "status": "applied",
+                    "reason": str(plan_fallback.get("reason") or "plan_error"),
+                    "error_type": str(plan_fallback.get("error_type") or ""),
+                    "count": 0,
+                }
+            )
 
         for call in plan["tool_calls"]:
             name = str(call["tool_name"])
@@ -365,7 +463,22 @@ class StudyBuddyAgent(BaseAgent):
         try:
             from algorithm.graph_recommender import get_graph_recommender
 
-            scores = get_graph_recommender().rank_peers(learner_id, list(candidate_by_id), k=len(candidate_by_id))
+            history_user_ids = input_data.get("history_user_ids")
+            rank_kwargs: dict[str, Any] = {}
+            if isinstance(history_user_ids, (list, tuple, set)):
+                history_user_ids = [
+                    user_id.strip()
+                    for user_id in history_user_ids
+                    if isinstance(user_id, str) and user_id.strip()
+                ]
+                if history_user_ids:
+                    rank_kwargs["history_partner_ids"] = history_user_ids
+            scores = get_graph_recommender().rank_peers(
+                learner_id,
+                list(candidate_by_id),
+                k=len(candidate_by_id),
+                **rank_kwargs,
+            )
         except Exception as exc:
             logger.warning("[study_buddy] graph ranking unavailable: %s", exc)
             return None
@@ -387,7 +500,22 @@ class StudyBuddyAgent(BaseAgent):
         try:
             from algorithm.graph_recommender import get_graph_recommender
 
-            scores = get_graph_recommender().similar_peers(learner_id, list(candidate_by_id), k=len(candidate_by_id))
+            history_user_ids = input_data.get("history_user_ids")
+            rank_kwargs: dict[str, Any] = {}
+            if isinstance(history_user_ids, (list, tuple, set)):
+                history_user_ids = [
+                    user_id.strip()
+                    for user_id in history_user_ids
+                    if isinstance(user_id, str) and user_id.strip()
+                ]
+                if history_user_ids:
+                    rank_kwargs["history_partner_ids"] = history_user_ids
+            scores = get_graph_recommender().similar_peers(
+                learner_id,
+                list(candidate_by_id),
+                k=len(candidate_by_id),
+                **rank_kwargs,
+            )
         except Exception as exc:
             logger.warning("[study_buddy] graph similarity unavailable: %s", exc)
             return None
@@ -824,11 +952,14 @@ class StudyBuddyAgent(BaseAgent):
 
     @staticmethod
     def _planning_from_plan(plan: dict[str, Any]) -> dict[str, Any]:
-        return {
+        planning = {
             "recall_strategy": plan.get("recall_strategy", ""),
             "ranking_criteria": plan.get("ranking_criteria", []),
             "target_count": plan.get("target_count", 0),
         }
+        if isinstance(plan.get("plan_fallback"), dict):
+            planning["plan_fallback"] = dict(plan["plan_fallback"])
+        return planning
 
     @staticmethod
     def _reflection_for_output(reflection: dict[str, Any]) -> dict[str, Any]:

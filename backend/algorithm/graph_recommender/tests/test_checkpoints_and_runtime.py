@@ -132,6 +132,83 @@ def test_ranking_keeps_seen_resources_and_filters_existing_peers(tmp_path):
     assert recommender._forward_graph.call_count == 2
 
 
+def test_resource_history_uses_a_request_local_bidirectional_graph(tmp_path, graph_rows):
+    pytest.importorskip("torch_geometric")
+    embeddings = {
+        EmbeddingKey(node_type, node_id): [0.1, 0.2, 0.3, 0.4]
+        for node_type, node_ids in {
+            "learner": [learner.id for learner in graph_rows.learners],
+            "resource": [resource.id for resource in graph_rows.resources],
+            "knowledge_point": [point.id for point in graph_rows.knowledge_points],
+        }.items()
+        for node_id in node_ids
+    }
+    graph_data = GraphBuilder().build(graph_rows, embeddings)
+    snapshot = GraphSnapshot.create(1, graph_data, graph_data.to_heterodata())
+    recommender = GraphRecommender(
+        InMemoryGraphRepository(GraphRows()), HashEmbeddingProvider(4), tmp_path
+    )
+    forward_relation = ("learner", "interacted_with", "resource")
+    reverse_relation = ("resource", "rev_interacted_with", "learner")
+    learner_index = graph_data.id_to_index["learner"]["u1"]
+    resource_index = graph_data.id_to_index["resource"]["r2"]
+
+    overlay = recommender._graph_with_resource_history(snapshot, "u1", ["r2"])
+    original_forward = snapshot.graph[forward_relation].edge_index
+    original_reverse = snapshot.graph[reverse_relation].edge_index
+    overlay_forward = overlay[forward_relation].edge_index
+    overlay_reverse = overlay[reverse_relation].edge_index
+
+    assert set(original_forward[1, original_forward[0] == learner_index].tolist()) == {0, 1, 2}
+    assert set(original_reverse[0, original_reverse[1] == learner_index].tolist()) == {0, 1, 2}
+    assert overlay_forward[:, overlay_forward[0] == learner_index].tolist() == [
+        [learner_index],
+        [resource_index],
+    ]
+    assert overlay_reverse[:, overlay_reverse[1] == learner_index].tolist() == [
+        [resource_index],
+        [learner_index],
+    ]
+
+
+def test_partner_history_uses_a_request_local_bidirectional_graph(tmp_path, graph_rows):
+    pytest.importorskip("torch_geometric")
+    embeddings = {
+        EmbeddingKey(node_type, node_id): [0.1, 0.2, 0.3, 0.4]
+        for node_type, node_ids in {
+            "learner": [learner.id for learner in graph_rows.learners],
+            "resource": [resource.id for resource in graph_rows.resources],
+            "knowledge_point": [point.id for point in graph_rows.knowledge_points],
+        }.items()
+        for node_id in node_ids
+    }
+    graph_data = GraphBuilder().build(graph_rows, embeddings)
+    snapshot = GraphSnapshot.create(1, graph_data, graph_data.to_heterodata())
+    recommender = GraphRecommender(
+        InMemoryGraphRepository(GraphRows()), HashEmbeddingProvider(4), tmp_path
+    )
+    relation = ("learner", "partnered_with", "learner")
+    learner_index = graph_data.id_to_index["learner"]["u1"]
+    partner_indexes = [
+        graph_data.id_to_index["learner"][partner_id]
+        for partner_id in ("u2", "u3")
+    ]
+
+    overlay = recommender._graph_with_partner_history(snapshot, "u1", ["u2", "u3"])
+    original_edges = snapshot.graph[relation].edge_index
+    overlay_edges = overlay[relation].edge_index
+
+    assert set(original_edges[1, original_edges[0] == learner_index].tolist()) == set(partner_indexes)
+    assert set(original_edges[0, original_edges[1] == learner_index].tolist()) == set(partner_indexes)
+    assert set(overlay_edges[1, overlay_edges[0] == learner_index].tolist()) == set(partner_indexes)
+    assert set(overlay_edges[0, overlay_edges[1] == learner_index].tolist()) == set(partner_indexes)
+    assert (
+        overlay_edges[:, (overlay_edges[0] == partner_indexes[0]) & (overlay_edges[1] == partner_indexes[1])]
+        .numel()
+        == 2
+    )
+
+
 def test_peer_similarity_uses_gat_and_resource_similarity_returns_text_embedding_pairs(tmp_path):
     recommender = GraphRecommender(
         InMemoryGraphRepository(GraphRows()), HashEmbeddingProvider(4), tmp_path
