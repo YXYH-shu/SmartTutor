@@ -49,6 +49,170 @@ def _local_patch_is_safe(original: str, patched: str) -> bool:
     return _structure_count(patched) >= _structure_count(original)
 
 
+# ---------------------------------------------------------------------------
+# V2.5 展示字段（scores / severity / issue_details / patches / summary / change_ratio）
+# 只用于前端展示，不参与 PASS/PATCH/REGENERATE 判定，也不被其他智能体读取。
+# 所有归一化都必须容错：模型漏填或格式不对时返回默认值，绝不抛异常。
+# ---------------------------------------------------------------------------
+_SCORE_KEYS = (
+    "scientific_argumentation",
+    "metacognitive_guidance",
+    "scientific_discourse",
+    "content_safety",
+)
+_VALID_SEVERITY = {"none", "minor", "major"}
+
+
+def _normalize_scores(value: Any) -> dict[str, int | None]:
+    scores: dict[str, int | None] = {}
+    source = value if isinstance(value, dict) else {}
+    for key in _SCORE_KEYS:
+        raw = source.get(key)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            scores[key] = None
+        else:
+            scores[key] = max(0, min(100, int(round(raw))))
+    return scores
+
+
+def _normalize_issue_details(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    details: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        problem = str(item.get("problem") or "").strip()
+        if not problem:
+            continue
+        details.append(
+            {
+                "dimension": str(item.get("dimension") or "").strip(),
+                "problem": problem,
+                "reason": str(item.get("reason") or "").strip(),
+            }
+        )
+    return details
+
+
+def _normalize_dimension_notes(value: Any) -> dict[str, str]:
+    source = value if isinstance(value, dict) else {}
+    notes: dict[str, str] = {}
+    for key in _SCORE_KEYS:
+        raw = source.get(key)
+        notes[key] = raw.strip() if isinstance(raw, str) else ""
+    return notes
+
+
+def _squash(text: str) -> str:
+    """Drop whitespace and markdown emphasis so quote matching tolerates formatting."""
+    return re.sub(r"[\s*_`#>]+", "", text)
+
+
+def _normalize_dimension_evidence(value: Any, original: str) -> dict[str, str]:
+    """Keep a quote only if it really appears in the original answer."""
+    source = value if isinstance(value, dict) else {}
+    haystack = _squash(original)
+    evidence: dict[str, str] = {}
+    for key in _SCORE_KEYS:
+        raw = source.get(key)
+        quote = raw.strip() if isinstance(raw, str) else ""
+        evidence[key] = quote if quote and len(quote) <= 80 and _squash(quote) in haystack else ""
+    return evidence
+
+
+def _derive_patches(original: str, patched: str, reason: str) -> list[dict[str, str]]:
+    """Fallback: derive before/after pairs by diffing lines when the model gave none."""
+    import difflib
+
+    before_lines = original.splitlines()
+    after_lines = patched.splitlines()
+    matcher = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)
+    derived: list[dict[str, str]] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "replace":
+            continue
+        before = "\n".join(before_lines[i1:i2]).strip()
+        after = "\n".join(after_lines[j1:j2]).strip()
+        if before and after:
+            derived.append({"before": before, "after": after, "reason": reason})
+    return derived
+
+
+def _normalize_patches(
+    value: Any, original: str, patched: str, fallback_reason: str
+) -> list[dict[str, str]]:
+    """Keep only patches whose ``before`` really exists in the original text."""
+    patches: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            before = str(item.get("before") or "").strip()
+            after = str(item.get("after") or "").strip()
+            if before and after and before in original and before != after:
+                patches.append(
+                    {
+                        "before": before,
+                        "after": after,
+                        "reason": str(item.get("reason") or "").strip() or fallback_reason,
+                    }
+                )
+    if not patches and patched:
+        patches = _derive_patches(original, patched, fallback_reason)
+    return patches
+
+
+def _change_ratio(original: str, final: str) -> float:
+    if original == final or not original:
+        return 0.0
+    import difflib
+
+    ratio = 1.0 - difflib.SequenceMatcher(None, original, final, autojunk=False).ratio()
+    return round(max(0.0, min(1.0, ratio)), 3)
+
+
+def _build_display_fields(
+    output: dict[str, Any], *, original: str, final: str, patched: bool
+) -> dict[str, Any]:
+    """Build the V2.5 display-only fields. Never raises."""
+    try:
+        issue_details = _normalize_issue_details(output.get("issue_details"))
+        severity = output.get("severity")
+        severity = severity if severity in _VALID_SEVERITY else None
+        summary = output.get("summary")
+        fallback_reason = issue_details[0]["reason"] if issue_details else ""
+        return {
+            "scores": _normalize_scores(output.get("scores")),
+            "severity": severity,
+            "issue_details": issue_details,
+            "patches": (
+                _normalize_patches(output.get("patches"), original, final, fallback_reason)
+                if patched
+                else []
+            ),
+            "summary": summary.strip() if isinstance(summary, str) else "",
+            "change_ratio": _change_ratio(original, final) if patched else 0.0,
+            "dimension_notes": _normalize_dimension_notes(output.get("dimension_notes")),
+            # 引用只和“被验收的原回答”比对，PATCH 后也以原回答为准
+            "dimension_evidence": _normalize_dimension_evidence(
+                output.get("dimension_evidence"), original
+            ),
+        }
+    except Exception:  # noqa: BLE001 - display fields must never break the gate
+        logger.warning("[content_correction] failed to build display fields", exc_info=True)
+        return {
+            "scores": _normalize_scores(None),
+            "severity": None,
+            "issue_details": [],
+            "patches": [],
+            "summary": "",
+            "change_ratio": 0.0,
+            "dimension_notes": _normalize_dimension_notes(None),
+            "dimension_evidence": _normalize_dimension_evidence(None, ""),
+        }
+
+
 def _compact_safety_constraints(value: Any) -> dict[str, Any]:
     """Keep only correction-relevant safety facts out of the full trace tree."""
     if not isinstance(value, dict):
@@ -173,6 +337,10 @@ async def content_correction(state: TutorState) -> dict[str, Any]:
             _structure_count(final) >= _structure_count(original)
         ),
         "regeneration_count": regeneration_count,
+        # V2.5 展示字段：只增不改，上面的 V2.0 字段含义保持不变
+        **_build_display_fields(
+            output, original=original, final=final, patched=(status == "patched")
+        ),
     }
     ctx["content_corrector"] = trace_output
     ctx["_last_agent"] = "content_corrector"

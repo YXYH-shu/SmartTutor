@@ -16,6 +16,7 @@ import { AGENT_CONFIGS, AGENT_HIGHLIGHT_FIELDS } from '@/data/agentConfigs';
 import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
 import { ResourceRecommendationFlow } from './ResourceRecommendationFlow';
 import { StudyBuddyFlow } from './StudyBuddyFlow';
+import { ContentCorrectorFlow, SafetyMonitorFlow } from './trace43';
 import type { ResourceRecommendationOutput, StudyBuddyOutput } from '@/types';
 
 export function AgentDetailDrawer() {
@@ -68,6 +69,26 @@ export function AgentDetailDrawer() {
         onClose={() => setSelectedDetailAgent(null)}
         output={liveOutput as StudyBuddyOutput | null}
         message={currentMessage}
+        isRunning={isRunning}
+      />
+    );
+  }
+
+  // 课题 4.3：安全监测 / 内容矫正使用专属流程可视化
+  if (selectedDetailAgent === 'safety_monitor' || selectedDetailAgent === 'content_corrector') {
+    const liveOutput = parseAgentContent(agentTrace[selectedDetailAgent]?.content);
+    const isRunning =
+      !liveOutput &&
+      (currentAgent === selectedDetailAgent ||
+        currentTurn?.agentTimeline.some(
+          (item) => item.agentName === selectedDetailAgent && item.status === 'running',
+        ) === true);
+    const Flow = selectedDetailAgent === 'safety_monitor' ? SafetyMonitorFlow : ContentCorrectorFlow;
+    return (
+      <Flow
+        onBack={() => setSelectedDetailAgent(null)}
+        onClose={() => setSelectedDetailAgent(null)}
+        output={liveOutput}
         isRunning={isRunning}
       />
     );
