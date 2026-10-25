@@ -192,3 +192,169 @@ def test_normal_routes_end_at_correction_gate():
 @pytest.mark.parametrize("branch", ["REJECT", "GUIDE"])
 def test_direct_safety_responses_bypass_correction_gate(branch: str):
     assert builder_module._route_after_safety({"safety_branch": branch}) == "assemble_response"
+
+
+# ---------------------------------------------------------------------------
+# V2.5 display fields: must be additive and must never change gate decisions
+# ---------------------------------------------------------------------------
+_V25_KEYS = {"scores", "severity", "issue_details", "patches", "summary", "change_ratio"}
+
+
+@pytest.mark.asyncio
+async def test_v25_fields_default_safely_when_model_omits_them(monkeypatch):
+    # A V2.0-style model output (no V2.5 fields) must still work unchanged.
+    agent = StubAgent(_audit("PASS"))
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+
+    result = await correction_module.content_correction(_state("## 回答\n\n1. 原理。"))
+    audit = result["context"]["content_corrector"]
+
+    assert _V25_KEYS <= set(audit)
+    assert audit["action"] == "PASS" and audit["status"] == "passed"
+    assert all(v is None for v in audit["scores"].values())
+    assert audit["severity"] is None
+    assert audit["issue_details"] == [] and audit["patches"] == []
+    assert audit["change_ratio"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_v25_patch_fields_are_normalized(monkeypatch):
+    filler = "\n".join(
+        f"{n}. 电流通过生物组织时会产生热效应，并可能干扰神经、肌肉和心脏的正常电活动，需要做好绝缘与隔离。"
+        for n in range(2, 12)
+    )
+    original = f"## 原理\n\n1. 体型越大的动物，受到电击时越安全。\n{filler}"
+    patched = f"## 原理\n\n1. 即使是大象这样庞大的动物，也需要防范电击带来的伤害。\n{filler}"
+    output = _audit("PATCH", patched_response=patched)
+    output.update(
+        {
+            "scores": {
+                "scientific_argumentation": 86,
+                "metacognitive_guidance": 94.4,
+                "scientific_discourse": 120,
+                "content_safety": "高",
+            },
+            "severity": "minor",
+            "issue_details": [
+                {"dimension": "scientific_argumentation", "problem": "体型决定安全性", "reason": "缺少条件限定"},
+                "bad-item",
+                {"problem": ""},
+            ],
+            "patches": [
+                {"before": "体型越大的动物，受到电击时越安全。", "after": "即使是大象这样庞大的动物，也需要防范电击带来的伤害。", "reason": "去掉绝对化判断"},
+                {"before": "原文里根本没有这句", "after": "x", "reason": "应被丢弃"},
+            ],
+            "summary": "仅修正一处科学性表述",
+        }
+    )
+    agent = StubAgent(output)
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+
+    result = await correction_module.content_correction(_state(original))
+    audit = result["context"]["content_corrector"]
+
+    assert result["final_response"] == patched
+    assert audit["status"] == "patched"
+    assert audit["scores"] == {
+        "scientific_argumentation": 86,
+        "metacognitive_guidance": 94,
+        "scientific_discourse": 100,
+        "content_safety": None,
+    }
+    assert audit["severity"] == "minor"
+    assert len(audit["issue_details"]) == 1
+    assert [p["reason"] for p in audit["patches"]] == ["去掉绝对化判断"]
+    assert 0 < audit["change_ratio"] < 0.2
+
+
+@pytest.mark.asyncio
+async def test_v25_patches_derived_from_diff_when_model_gives_none(monkeypatch):
+    original = "## 步骤\n\n1. 断开电源。\n2. 检查设备。"
+    patched = "## 步骤\n\n1. 先断开电源，避免带电检查。\n2. 检查设备。"
+    agent = StubAgent(_audit("PATCH", patched_response=patched))
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+
+    audit = (await correction_module.content_correction(_state(original)))["context"]["content_corrector"]
+
+    assert audit["patches"] == [
+        {"before": "1. 断开电源。", "after": "1. 先断开电源，避免带电检查。", "reason": ""}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_v25_garbage_fields_never_break_the_gate(monkeypatch):
+    output = _audit("PASS")
+    output.update(
+        {"scores": "oops", "severity": 7, "issue_details": {"a": 1}, "patches": "x", "summary": 5}
+    )
+    agent = StubAgent(output)
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+
+    result = await correction_module.content_correction(_state("可靠回答"))
+    audit = result["context"]["content_corrector"]
+
+    assert result["final_response"] == "可靠回答"
+    assert audit["action"] == "PASS" and audit["status"] == "passed"
+    assert audit["severity"] is None and audit["summary"] == ""
+
+
+@pytest.mark.asyncio
+async def test_v25_fields_do_not_leak_into_regeneration_input(monkeypatch):
+    # Regeneration must keep reading only action/issues, never the new fields.
+    responder = StubAgent({"response_text": "## 重写\n\n1. 内容。", "topic_tags": [], "confidence": 0.9})
+    monkeypatch.setattr(regeneration_module, "get_agent", lambda name: responder)
+    state = _state("太短")
+    state["context"]["content_corrector"] = {
+        "action": "REGENERATE",
+        "issues": ["回答过短"],
+        "scores": {"scientific_argumentation": 10},
+        "patches": [],
+    }
+
+    await regeneration_module.content_regeneration(state)
+
+    assert responder.calls[0]["correction_issues"] == ["回答过短"]
+
+
+@pytest.mark.asyncio
+async def test_v25_dimension_notes_and_evidence_are_validated(monkeypatch):
+    original = "## 原理\n\n1. **电流的热效应**：电流通过导体时会产生热量。\n2. 要做好绝缘与隔离。"
+    output = _audit("PASS")
+    output.update(
+        {
+            "dimension_notes": {
+                "scientific_argumentation": "热效应的因果关系表述准确",
+                "metacognitive_guidance": 5,
+            },
+            "dimension_evidence": {
+                "scientific_argumentation": "电流通过导体时会产生热量。",
+                "metacognitive_guidance": "原文里根本没有这句话",
+                "scientific_discourse": "要做好绝缘与隔离",
+                "content_safety": "x" * 200,
+            },
+        }
+    )
+    agent = StubAgent(output)
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+
+    audit = (await correction_module.content_correction(_state(original)))["context"]["content_corrector"]
+
+    assert audit["action"] == "PASS" and audit["status"] == "passed"
+    assert audit["dimension_notes"]["scientific_argumentation"] == "热效应的因果关系表述准确"
+    assert audit["dimension_notes"]["metacognitive_guidance"] == ""
+    ev = audit["dimension_evidence"]
+    assert ev["scientific_argumentation"] == "电流通过导体时会产生热量。"
+    assert ev["scientific_discourse"] == "要做好绝缘与隔离"  # markdown/空白差异不影响匹配
+    assert ev["metacognitive_guidance"] == ""  # 编造的引用被丢弃
+    assert ev["content_safety"] == ""  # 过长的引用被丢弃
+
+
+@pytest.mark.asyncio
+async def test_v25_notes_default_when_missing(monkeypatch):
+    agent = StubAgent(_audit("PASS"))
+    monkeypatch.setattr(correction_module, "get_agent", lambda name: agent)
+    audit = (await correction_module.content_correction(_state("可靠回答")))["context"]["content_corrector"]
+    assert set(audit["dimension_notes"]) == set(audit["dimension_evidence"]) == {
+        "scientific_argumentation", "metacognitive_guidance", "scientific_discourse", "content_safety"
+    }
+    assert all(v == "" for v in audit["dimension_notes"].values())

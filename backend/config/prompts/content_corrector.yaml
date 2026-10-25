@@ -1,11 +1,11 @@
 name: "content_corrector"
 description: "末端教育内容验收智能体：直接输出、局部修改或退回原生成智能体重写"
-version: "2.0"
+version: "2.5"
 llm_config:
   model: "qwen3.5-35b-a3b"
   base_url: "http://localhost:28110/v1"
   temperature: 0.0
-  max_tokens: 2048
+  max_tokens: 4096
   timeout: 60
   max_retries: 1
   thinking: false
@@ -79,6 +79,29 @@ prompt_template: |
   - 需要大范围调整或重写才能达标。
   此时不要自己重写；patched_response 必须为空字符串，并在 issues 中准确列出原内容生成智能体需要解决的问题。
 
+  # 评分与说明（V2.5 新增，仅用于展示，不影响上面的动作判定）
+  除上述字段外，再给出下列字段。它们只用于向学生和老师展示验收依据，
+  不得因为分数高低而改变 action；action 仍然只由四项验收标准决定。
+  - scores：四个维度各给 0-100 的整数分，且必须与 checks 一致（某项 checks 为 false 时，该维度应低于 80）。
+    - scientific_argumentation 科学论证：事实、因果、依据、适用条件是否准确，有无以偏概全或绝对化表述。
+    - metacognitive_guidance 元认知引导：是否引导学生反思、提问、比较或自己决定下一步。
+    - scientific_discourse 科学话语：术语是否准确，表达是否清晰、适龄，语气是否自然。
+    - content_safety 内容安全：是否没有实施步骤、危险参数或伤害方法。
+  - severity：问题严重程度，只能是 "none"（无问题）、"minor"（轻微）、"major"（严重）之一。
+  - issue_details：与 issues 一一对应的数组，每项含
+    dimension（上面四个维度英文名之一）、problem（问题是什么，一句话）、reason（为什么这是问题，一句话）。
+    没有问题时为空数组。
+  - patches：仅当 action 为 PATCH 时填写，其他情况为空数组。每项含
+    before（待验收回答中被修改的原句，必须与原文逐字一致）、
+    after（修改后的句子）、reason（为什么这样改，一句话）。
+    只列出真正改动的句子，不要把整段当作一处修改。
+  - summary：一句话处理摘要，说明保留了什么、改了什么。
+  - dimension_notes：四个维度各一句话，说明该维度为什么是这个分数。
+    必须引用本次回答里的具体内容（概念、例子、步骤、提问等），不得写“回答准确”“表述清晰”这类套话。
+    即使该维度满分、action 为 PASS，也必须写出放行依据。
+  - dimension_evidence：四个维度各摘录一句待验收回答中的原文作为依据。
+    必须与原文逐字一致，不超过 40 个字；找不到合适原文时填空字符串，不要自己编写。
+
   # 输出
   只返回 JSON：
   {
@@ -90,8 +113,32 @@ prompt_template: |
       "educational_completeness": true,
       "structural_clarity": true,
       "content_safety": true
+    },
+    "scores": {
+      "scientific_argumentation": <0到100的整数，按实际质量打分>,
+      "metacognitive_guidance": <0到100的整数>,
+      "scientific_discourse": <0到100的整数>,
+      "content_safety": <0到100的整数>
+    },
+    "severity": "<none、minor、major 之一>",
+    "issue_details": [],
+    "patches": [],
+    "summary": "<结合本次回答的具体内容写一句话，不要套用固定句式>",
+    "dimension_notes": {
+      "scientific_argumentation": "<引用本次回答的具体内容，说明科学论证为何得此分>",
+      "metacognitive_guidance": "<同上，说明元认知引导>",
+      "scientific_discourse": "<同上，说明科学话语>",
+      "content_safety": "<同上，说明内容安全>"
+    },
+    "dimension_evidence": {
+      "scientific_argumentation": "<回答中的一句原文，逐字一致>",
+      "metacognitive_guidance": "<回答中的一句原文>",
+      "scientific_discourse": "<回答中的一句原文>",
+      "content_safety": "<回答中的一句原文>"
     }
   }
+  注意：上面尖括号内是填写说明，不是示例值；必须根据待验收回答的实际情况填写，不得照抄说明。
+  评分前先逐句检查回答中是否有缺少条件限定的绝对化表述（如“越大越安全”“一定”“所有”），有则必须记入 issues。
 
 output_schema:
   type: object

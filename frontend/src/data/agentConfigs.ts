@@ -627,31 +627,31 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       label: '处理状态',
       format: (v: unknown) => {
         const labels: Record<string, string> = {
-          passed: 'PASSED',
-          patched: 'PATCHED',
-          audited: 'AUDITED',
-          patch_rejected: 'PATCH_REJECTED',
-          regeneration_limit: 'REGENERATION_LIMIT',
-          audit_fallback: 'AUDIT_FALLBACK',
+          passed: '检查通过',
+          patched: '已局部修正',
+          audited: '已验收',
+          patch_rejected: '修改超范围，退回重写',
+          regeneration_limit: '已达重写上限',
+          audit_fallback: '验收异常，保留原文',
         };
-        return typeof v === 'string' ? (labels[v] ?? v.toUpperCase()) : 'UNKNOWN';
+        return typeof v === 'string' ? (labels[v] ?? v) : '待验收';
       },
     },
     {
       key: 'issues',
       label: '发现问题',
       format: (v: unknown) =>
-        Array.isArray(v) && v.length > 0 ? `${v.length} ISSUES` : 'NO_ISSUES',
+        Array.isArray(v) && v.length > 0 ? `${v.length} 项` : '0 项，无需修改',
     },
     {
       key: 'checks',
       label: '四项验收',
       format: (v: unknown) => {
-        if (typeof v !== 'object' || v === null) return 'NO_CHECK_DETAILS';
+        if (typeof v !== 'object' || v === null) return '未返回明细';
         const values = Object.values(v as Record<string, unknown>);
-        if (values.length === 0) return 'NO_CHECK_DETAILS';
+        if (values.length === 0) return '未返回明细';
         const passed = values.filter((item) => item === true).length;
-        return `${passed}/${values.length} PASSED`;
+        return `${passed}/${values.length} 通过`;
       },
     },
     {
@@ -660,53 +660,85 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       format: (v: unknown) =>
         typeof v === 'string' && v.trim()
           ? (v.length > 40 ? `${v.slice(0, 40)}…` : v)
-          : 'NO_PATCH_REQUIRED',
+          : '无需修补，原文放行',
     },
     {
       key: 'structure_preserved',
-      label: '结构保留',
-      format: (v: unknown) => (v === true ? 'YES' : v === false ? 'NO' : 'NOT_CHECKED'),
+      label: '原结构保留',
+      format: (v: unknown) => (v === true ? '是' : v === false ? '否' : '未检查'),
     },
     {
       key: 'regeneration_count',
       label: '重写次数',
-      format: (v: unknown) =>
-        typeof v === 'number' && v > 0
-          ? `${v} ${v === 1 ? 'REWRITE' : 'REWRITES'}`
-          : 'NOT_TRIGGERED',
+      format: (v: unknown) => (typeof v === 'number' && v > 0 ? `${v} 次` : '未触发'),
     },
   ],
   safety_monitor: [
     { key: 'branch', label: '处理分支' },
     { key: 'raw_branch', label: '分支代码' },
-    { key: 'safety_context.risk_category', label: '风险类别' },
-    { key: 'safety_context.intent', label: '识别意图' },
+    {
+      key: 'safety_context.risk_category',
+      label: '风险类别',
+      format: (v: unknown) => {
+        const labels: Record<string, string> = {
+          N: 'N · 无风险主题',
+          A: 'A · 伤害或危险操作',
+          B: 'B · 学段不适内容',
+          C: 'C · 现实危机',
+          D1: 'D1 · 偏见歧视仇恨',
+          D2: 'D2 · 隐私侵害',
+          D3: 'D3 · 深度伪造与欺诈',
+        };
+        return typeof v === 'string' && v ? (labels[v] ?? v) : '承接上一轮';
+      },
+    },
+    {
+      key: 'safety_context.intent',
+      label: '识别意图',
+      format: (v: unknown) => {
+        const labels: Record<string, string> = {
+          learning: '学习探究',
+          emotional: '情绪表达',
+          probing: '边界试探',
+          malicious: '恶意意图',
+        };
+        return typeof v === 'string' && v ? (labels[v] ?? v) : '学生选择引导选项';
+      },
+    },
     { key: 'safety_context.core_topic', label: '核心主题' },
     {
       key: 'safety_context.operational_request',
       label: '操作性请求',
-      format: (v: unknown) => (v === true ? 'YES' : v === false ? 'NO' : 'UNKNOWN'),
+      format: (v: unknown) => (v === true ? '是' : v === false ? '否' : '承接上一轮'),
     },
     {
       key: 'safety_context.classifier.decision_source',
       label: '判断来源',
-      format: (v: unknown) => (typeof v === 'string' ? v.toUpperCase() : 'UNKNOWN'),
+      format: (v: unknown) => {
+        const labels: Record<string, string> = {
+          primary_model: '主模型判断',
+          adjudicator_model: '裁决模型复核',
+          primary_after_adjudicator_error: '裁决失败，沿用主模型',
+          local_fallback: '本地规则兜底',
+        };
+        return typeof v === 'string' && v ? (labels[v] ?? v) : '选项匹配（免分类）';
+      },
     },
     {
       key: 'safety_context.reject_type',
       label: '拒绝原因',
-      format: (v: unknown) => (typeof v === 'string' && v ? v : 'N/A'),
+      format: (v: unknown) => (typeof v === 'string' && v ? v : '未触发拒绝'),
     },
     {
       key: 'safety_context.guidance_skill.selection_mode',
       label: '引导方式',
-      format: (v: unknown) => (v === 'two_stage' ? 'TWO_STAGE' : 'N/A'),
+      format: (v: unknown) => (v === 'two_stage' ? '先选学科，再选知识点' : '无需引导'),
     },
     {
       key: 'safety_context.guidance_skill.learning_options',
       label: '学习方向',
       format: (v) =>
-        Array.isArray(v) && v.length > 0 ? `${v.length} OPTIONS` : 'NO_SELECTION_REQUIRED',
+        Array.isArray(v) && v.length > 0 ? `${v.length} 个选项` : '无需选择',
     },
   ],
 };
