@@ -5,6 +5,7 @@ import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import { cn } from '@/utils/cn';
+import { getAuthErrorMessage, validateRegistration } from '@/utils/authErrors';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -16,30 +17,33 @@ export default function RegisterPage() {
   const [confirmPwd, setConfirmPwd] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const strength = getStrength(password);
   const passwordsMatch = password === confirmPwd;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!username || !email || !password || !confirmPwd) return;
-    if (!passwordsMatch) {
-      toast.error('两次密码不一致');
+    if (loading) return;
+    setErrorMessage('');
+    const validation = validateRegistration(username, email, password, confirmPwd);
+    if (validation) {
+      setErrorMessage(validation);
       return;
     }
 
     setLoading(true);
     try {
       const res = await authService.register({
-        username,
-        email,
+        username: username.trim(),
+        email: email.trim(),
         password,
       });
       login(res.user, res.access_token, res.refresh_token);
       toast.success('注册成功！');
       navigate('/dashboard/chat');
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || '注册失败');
+    } catch (err: unknown) {
+      setErrorMessage(getAuthErrorMessage(err, '注册失败，请稍后重试。'));
     } finally {
       setLoading(false);
     }
@@ -76,11 +80,12 @@ export default function RegisterPage() {
           </h2>
           <p className="mb-8 text-text-tertiary">开始你的智能学习之旅</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate aria-busy={loading} className="space-y-4">
+            {errorMessage && <p role="alert" className="text-14 text-status-error">{errorMessage}</p>}
             <Field
               icon={<User size={16} />}
               type="text"
-              placeholder="用户名"
+              placeholder="用户名（3–64个字符）"
               value={username}
               onChange={setUsername}
             />
@@ -138,7 +143,7 @@ export default function RegisterPage() {
 
             <button
               type="submit"
-              disabled={loading || !passwordsMatch}
+              disabled={loading}
               className="w-full rounded-xl bg-accent hover:bg-accent/90 py-2.5 text-14 font-medium text-white transition-all duration-200 active:scale-[0.98] disabled:opacity-50 shadow-sm glow-primary-sm"
             >
               {loading ? '注册中...' : '注 册'}
@@ -191,6 +196,8 @@ function Field({
         <input
           type={type}
           placeholder={placeholder}
+          aria-label={placeholder}
+          required
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="flex-1 bg-transparent text-14 text-text-primary outline-none placeholder:text-text-tertiary"

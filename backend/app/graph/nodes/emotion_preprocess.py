@@ -32,6 +32,18 @@ async def emotion_preprocess(state: TutorState) -> dict[str, Any]:
 
     messages = state.get("messages", [])
 
+    # On a GUIDE-resolved turn the checkpoint history still contains the
+    # original risky query; only the safety-replaced safe message may reach
+    # the emotion LLM (mirrors stage_executor._messages_for_stage).
+    safety_context = (state.get("context") or {}).get("safety_context") or {}
+    if safety_context.get("resolved_from_guide") is True:
+        safe_messages = []
+        for msg in reversed(messages):
+            if getattr(msg, "type", "") == "human":
+                safe_messages = [msg]
+                break
+        messages = safe_messages
+
     # Build message history (last 10 messages)
     message_history = [
         {"role": getattr(m, "type", "unknown"), "content": getattr(m, "content", "")}

@@ -2,7 +2,7 @@ name: "safety_adjudicator"
 description: "仅在主分类不确定、冲突或疑似漏放时运行的独立安全复核器"
 version: "4.0"
 llm_config:
-  model: "glm-4-flash"
+  model: "qwen3.5-35b-a3b"
   temperature: 0.0
   max_tokens: 180
   thinking: false

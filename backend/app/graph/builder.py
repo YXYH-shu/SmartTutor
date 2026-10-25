@@ -13,7 +13,9 @@
 
 The ``emotion_preprocess`` node always runs ``emotion_analyzer`` before the
 decision node so that emotion data is available for routing and downstream
-agents without going through the decision model.
+agents without going through the decision model.  On a GUIDE-resolved turn
+the flow continues straight from ``emotion_preprocess`` to ``execute_stage``
+with the deterministic queue set by the safety gate (no decision node).
 
 The ``execute_agent`` node loops back to itself while there are agents
 remaining in ``next_agents``; once the queue is empty it forwards to the
@@ -32,22 +34,30 @@ from app.graph.state import TutorState
 logger = logging.getLogger(__name__)
 
 
-def _route_after_safety(state: TutorState) -> str:
-    """Only PASS continues; REJECT and GUIDE return a direct response."""
-    branch = state.get("safety_branch") or state.get("safety_action")
-    if branch in ("REJECT", "GUIDE"):
-        return "assemble_response"
+def _resolved_from_guide(state: TutorState) -> bool:
+    """True when this turn is a confirmed GUIDE safe-learning choice."""
     safety_context = (
         (state.get("context") or {}).get("safety_context")
         or state.get("safety_context")
         or {}
     )
-    if safety_context.get("resolved_from_guide") is True:
-        # The student has already selected an educational subject and focus.
-        # Route deterministically to teaching instead of sending the original
-        # risky conversation through emotion and decision LLMs again.
-        return "execute_stage"
+    return safety_context.get("resolved_from_guide") is True
+
+
+def _route_after_safety(state: TutorState) -> str:
+    """Only PASS continues; REJECT and GUIDE return a direct response."""
+    branch = state.get("safety_branch") or state.get("safety_action")
+    if branch in ("REJECT", "GUIDE"):
+        return "assemble_response"
     return "emotion_preprocess"
+
+
+def _route_after_emotion(state: TutorState) -> str:
+    """A GUIDE-resolved turn goes straight to the deterministic teaching
+    queue; the risky original conversation never reaches the decision LLM."""
+    if _resolved_from_guide(state):
+        return "execute_stage"
+    return "decide"
 
 
 def _route_after_decide(state: TutorState) -> str:
@@ -118,12 +128,17 @@ def build_tutor_graph(checkpointer: Any | None = None) -> StateGraph:
         _route_after_safety,
         {
             "emotion_preprocess": "emotion_preprocess",
-            "execute_stage": "execute_stage",
-            "execute_agent": "execute_agent",
             "assemble_response": "assemble_response",
         },
     )
-    graph.add_edge("emotion_preprocess", "decide")
+    graph.add_conditional_edges(
+        "emotion_preprocess",
+        _route_after_emotion,
+        {
+            "decide": "decide",
+            "execute_stage": "execute_stage",
+        },
+    )
 
     graph.add_conditional_edges(
         "decide",

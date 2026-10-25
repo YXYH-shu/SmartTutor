@@ -21,7 +21,9 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    // A rejected sign-in is not an expired session: do not refresh or retry it.
+    const isAuthRequest = /\/auth\/(login|register|refresh)(?:[?#]|$)/.test(original?.url || '');
+    if (original && !isAuthRequest && error.response?.status === 401 && !original._retry) {
       original._retry = true;
       const refreshToken = useAuthStore.getState().refreshToken;
       if (!refreshToken) {
@@ -32,6 +34,7 @@ api.interceptors.response.use(
         const { data } = await axios.post(
           `${api.defaults.baseURL}/api/v1/auth/refresh`,
           { refresh_token: refreshToken },
+          { timeout: 20_000 },
         );
         useAuthStore.getState().setTokens(data.access_token, refreshToken);
         original.headers.Authorization = `Bearer ${data.access_token}`;

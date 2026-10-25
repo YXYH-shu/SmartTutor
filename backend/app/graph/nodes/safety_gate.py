@@ -227,12 +227,20 @@ async def safety_gate(state: TutorState) -> dict[str, Any]:
             "messages": [HumanMessage(content=resolved_selection)],
             "context": ctx,
             # A confirmed GUIDE focus is already an explicit learning intent.
-            # Enter the teaching stage directly; no second LLM routing decision
-            # is needed for the same turn.
+            # Enter the teaching stage directly with a deterministic queue
+            # (stage_executor adopts the whole queue because it contains
+            # learning_path); no second LLM routing decision is needed.
             "workflow_type": "adaptive_learning",
             "current_stage": "teaching",
             "stage_counter": 0,
-            "next_agents": [],
+            "next_agents": [
+                "cognitive_diagnosis",
+                "learning_path",
+                "resource_recommender",
+                "knowledge_responder",
+                "content_polisher",
+                "empathy_generator",
+            ],
             "pre_focus": ["safety_monitor"],
             "focus_agents": ["safety_monitor"],
         }

@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage
 from app.services.safety_guidance_skill import SafetyGuidanceSkill
 from app.services.safety_pipeline import SafetyPipeline, SafetyResult
 from app.services.agents.knowledge_responder import KnowledgeResponderAgent
-from app.graph.builder import _route_after_safety
+from app.graph.builder import _route_after_emotion, _route_after_safety
 from app.graph.nodes.safety_gate import _resolve_guide_selection, safety_gate
 
 
@@ -109,7 +109,7 @@ async def test_compact_primary_result_expands_guidance_contract():
     assert skill_input["operational_request"] is True
     assert skill_input["core_topic"]
     assert llm.validate_json_response.await_args.kwargs["max_repair_attempts"] == 0
-    assert llm.chat_completion.await_args.kwargs["model"] == "glm-4-flash"
+    assert llm.chat_completion.await_args.kwargs["model"] == "qwen3.5-35b-a3b"
     assert llm.chat_completion.await_args.kwargs["max_tokens"] == 180
 
 
@@ -1273,13 +1273,21 @@ async def test_confirmed_guide_option_reenters_complete_downstream_flow():
     assert updates["safety_branch"] == "PASS"
     assert updates["safety_context"]["resolved_from_guide"] is True
     assert updates["safety_context"]["selected_option"] == "了解危险反应的实验安全"
-    assert updates["next_agents"] == []
+    assert updates["next_agents"] == [
+        "cognitive_diagnosis",
+        "learning_path",
+        "resource_recommender",
+        "knowledge_responder",
+        "content_polisher",
+        "empathy_generator",
+    ]
     assert "危险反应为什么需要安全防护" in updates["messages"][-1].content
     assert updates["context"]["safety_context"]["core_topic"] == "危险反应"
     assert updates["workflow_type"] == "adaptive_learning"
     assert updates["current_stage"] == "teaching"
     assert updates["stage_counter"] == 0
-    assert _route_after_safety(updates) == "execute_stage"
+    assert _route_after_safety(updates) == "emotion_preprocess"
+    assert _route_after_emotion(updates) == "execute_stage"
 
 
 @pytest.mark.asyncio

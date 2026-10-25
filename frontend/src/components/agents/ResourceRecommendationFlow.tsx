@@ -250,7 +250,7 @@ function ExecutionCircuit({
     { label: '规划', icon: Route, active: planHistory.length > 0 || hasSummary },
     { label: '工具', icon: Database, active: !isBoundary && reflectionHistory.length > 0 },
     { label: '反思', icon: ShieldCheck, active: reflectionHistory.length > 0 },
-    { label: '汇总', icon: FileText, active: hasSummary && (isBoundary || finalReflection?.passed === true) },
+    { label: '汇总', icon: FileText, active: hasSummary && (isBoundary || finalReflection?.passed !== false) },
   ];
 
   return (
@@ -486,6 +486,7 @@ export function ResourceRecommendationFlow({ onBack, onClose, output, message, i
   const evidence = useMemo(() => getRankingEvidence(traces), [traces]);
   const reflectionHistory = output?.reflection_history ?? [];
   const reflection: ResourceRecommendationReflection | undefined = output?.reflection ?? reflectionHistory[reflectionHistory.length - 1];
+  const hasReflection = Boolean(reflection && Object.keys(reflection).length > 0);
   const rankedResources = useMemo(() => (output?.resources ?? []).slice(0, 5), [output?.resources]);
   const rankPreview = rankedResources.slice(0, 3);
   const maxScore = useMemo(() => Math.max(...rankedResources.map((resource) => scoreFor(resource) ?? 0), 0) || null, [rankedResources]);
@@ -493,7 +494,7 @@ export function ResourceRecommendationFlow({ onBack, onClose, output, message, i
   const isBoundary = planHistory[planHistory.length - 1]?.need_tool === false;
   const finalReflection = reflectionHistory[reflectionHistory.length - 1];
   const hasSummary = Boolean(output?.recommendation_text || rankedResources.length > 0);
-  const summaryAccepted = isBoundary || finalReflection?.passed === true;
+  const summaryAccepted = isBoundary || finalReflection?.passed !== false;
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-bg-elevated animate-slide-in-right">
@@ -619,7 +620,7 @@ export function ResourceRecommendationFlow({ onBack, onClose, output, message, i
             <Stage index={3} title="质量校验" subtitle={`${reflectionHistory.length} 轮 Reflection`} icon={ShieldCheck} visible={visibleStages >= 4}>
               {isBoundary ? (
                 <p className="text-[10px] leading-4 text-text-tertiary">本轮被识别为非资源推荐请求，跳过工具执行与 Reflection，直接输出边界说明。</p>
-              ) : reflection ? (
+              ) : hasReflection ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
                     <Metric label="覆盖" value={reflection.coverage_score} />
@@ -639,7 +640,7 @@ export function ResourceRecommendationFlow({ onBack, onClose, output, message, i
               )}
             </Stage>
 
-            <Stage index={4} title="推荐汇总" subtitle={summaryAccepted ? isBoundary ? '边界分支输出' : 'Reflection 放行后的最终输出' : '等待 Reflection 放行'} icon={FileText} visible={visibleStages >= 5}>
+            <Stage index={4} title="推荐汇总" subtitle={summaryAccepted ? (isBoundary ? '边界分支输出' : reflectionHistory.length > 0 ? 'Reflection 放行后的最终输出' : '已完成推荐输出') : '等待 Reflection 放行'} icon={FileText} visible={visibleStages >= 5}>
               {summaryAccepted && hasSummary ? (
                 <>
                   <p className="border-l-2 border-emerald-400/70 bg-emerald-500/5 px-3 py-2 text-[11px] leading-5 text-text-secondary">

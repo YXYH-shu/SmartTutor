@@ -633,6 +633,15 @@ class TutorGraphEngine:
                         await step_queue.put(
                             {"type": "step", "label": "正在重新生成教育回复", "step": "knowledge_responder"}
                         )
+                    elif node_name == "emotion_preprocess" and (
+                        ((node_output or {}).get("context") or {})
+                        .get("safety_context", {})
+                        .get("resolved_from_guide")
+                    ) is True:
+                        # GUIDE-resolved turn goes straight to execute_stage,
+                        # which announces its own per-agent steps; emitting a
+                        # preview here would duplicate the first agent card.
+                        pass
                     else:
                         await step_queue.put(
                             {"type": "step", "label": NEXT_LABEL[node_name], "step": NEXT_STEP[node_name]}

@@ -109,8 +109,9 @@ class StageSettings(BaseSettings):
     必须放宽。所有字段可通过 .env 覆盖。
     """
 
-    # 整个 stage（一轮所有 agent）的总预算。
-    total_timeout_seconds: float = 240.0
+    # 整个 stage（一轮所有 agent）的总预算。GUIDE 兑现轮队列 6 个 agent，
+    # 单 agent 超时上限之和 300s，总预算必须不低于此值。
+    total_timeout_seconds: float = 360.0
     # 给 knowledge_responder 至少保留多少秒（兜底，防止它没机会运行）。
     knowledge_reserve_seconds: float = 60.0
 

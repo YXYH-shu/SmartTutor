@@ -2,10 +2,9 @@ name: "emotion_analyzer"
 description: "情感分析智能体（微调 Qwen3.5-9B 三分类专精模型，远程 vLLM 推理）"
 version: "2.0"
 llm_config:
-  # 通过 SSH 隧道转发到 6403 服务器的 vLLM 实例（容器内 172.18.0.2:8001）。
+  # 经 SSH 隧道转发到 6403 宿主机端口 8101（容器 host port 映射）。
   # 启动方式：bash scripts/start_emotion_tunnel.sh（保持窗口常开）。
-  # 本地端口默认 28111（避开 scholartrace-mc 等占用 8001 的服务）。
-  # 隧道中断时该 agent 会失败并报错；不会影响其他 agent。
+  # 8100/8101 对外部源地址不可达，直连会超时，必须走隧道。
   model: "qwen3.5-9b-emotion"
   base_url: "http://localhost:28111/v1"
   api_key: "not-needed"

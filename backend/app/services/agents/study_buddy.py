@@ -515,7 +515,9 @@ class StudyBuddyAgent(BaseAgent):
                 result = await session.execute(text(safe_sql))
                 return [self._serialize_row(dict(row)) for row in result.mappings().all()]
             finally:
-                if engine.dialect.name == "mysql":
+                if engine.dialect.name == "sqlite":
+                    await session.execute(text("PRAGMA query_only = OFF"))
+                elif engine.dialect.name == "mysql":
                     await session.execute(text("SET SESSION TRANSACTION READ WRITE"))
 
     def _validate_select_sql(self, sql: str) -> str:

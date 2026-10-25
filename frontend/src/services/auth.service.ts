@@ -8,12 +8,12 @@ import type {
 
 export const authService = {
   async login(data: LoginRequest): Promise<TokenResponse> {
-    const res = await api.post<TokenResponse>('/api/v1/auth/login', data);
+    const res = await api.post<TokenResponse>('/api/v1/auth/login', data, { timeout: 20_000 });
     return res.data;
   },
 
   async register(data: RegisterRequest): Promise<TokenResponse> {
-    const res = await api.post<TokenResponse>('/api/v1/auth/register', data);
+    const res = await api.post<TokenResponse>('/api/v1/auth/register', data, { timeout: 20_000 });
     return res.data;
   },
 

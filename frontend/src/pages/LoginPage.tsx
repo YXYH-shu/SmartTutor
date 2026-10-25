@@ -4,6 +4,7 @@ import { Mail, Lock, Eye, EyeOff, BookOpen, Lightbulb } from 'lucide-react';
 import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
+import { getAuthErrorMessage } from '@/utils/authErrors';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -13,19 +14,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
+    if (loading) return;
+    setErrorMessage('');
+    if (!email.trim() || !password) {
+      setErrorMessage('请填写邮箱和密码。');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setErrorMessage('请输入有效的邮箱地址。');
+      return;
+    }
 
     setLoading(true);
     try {
-      const res = await authService.login({ email, password });
+      const res = await authService.login({ email: email.trim(), password });
       login(res.user, res.access_token, res.refresh_token);
       toast.success('登录成功');
       navigate('/dashboard/chat');
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || '登录失败');
+    } catch (err: unknown) {
+      setErrorMessage(getAuthErrorMessage(err, '登录失败，请稍后重试。'));
     } finally {
       setLoading(false);
     }
@@ -62,7 +73,8 @@ export default function LoginPage() {
           </h2>
           <p className="mb-8 text-text-tertiary">登录以继续你的学习之旅</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate aria-busy={loading} className="space-y-4">
+            {errorMessage && <p role="alert" className="text-14 text-status-error">{errorMessage}</p>}
             <InputField
               icon={<Mail size={16} />}
               type="email"
@@ -132,6 +144,8 @@ function InputField({
       <input
         type={type}
         placeholder={placeholder}
+        aria-label={placeholder}
+        required
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="flex-1 bg-transparent text-14 text-text-primary outline-none placeholder:text-text-tertiary"
