@@ -5,6 +5,7 @@ Run with:  pytest tests/test_agents.py -v
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -334,6 +335,57 @@ class TestResourceRecommender:
         assert _patch_llm.chat_completion.call_count == 1
         agent._log_execution.assert_not_awaited()
         agent.post_process.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("side_effect", "response", "expected_reason"),
+        [
+            (asyncio.TimeoutError(), None, "plan_timeout"),
+            (ValueError("invalid JSON"), None, "plan_error"),
+            (None, {}, "empty_plan_response"),
+            (None, {"need_tool": True, "tool_calls": []}, "missing_valid_ranking_tool"),
+            (None, {"thought": "missing need_tool"}, "invalid_plan_schema"),
+        ],
+    )
+    async def test_plan_failure_falls_back_to_full_catalog_ranking(
+        self,
+        _patch_llm,
+        side_effect,
+        response,
+        expected_reason,
+    ):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        if side_effect is not None:
+            _patch_llm.chat_completion = AsyncMock(side_effect=side_effect)
+        else:
+            _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(response))
+
+        agent = ResourceRecommenderAgent(llm=_patch_llm)
+        agent.enrich_input = AsyncMock(side_effect=lambda data, _context: data)
+        candidates = [self._candidate(f"res-{index}") for index in range(1, 5)]
+        agent._load_all_resource_candidates = AsyncMock(return_value=candidates)
+        agent._rank_with_graph = MagicMock(
+            return_value=[{**candidate, "graph_score": 0.9 - index * 0.1} for index, candidate in enumerate(candidates)]
+        )
+
+        result = await agent.execute(
+            {"user_id": "learner-1", "current_message": "请推荐3个电学资源", "recent_messages": []},
+            context={},
+        )
+
+        output = result["output"]
+        assert len(output["resources"]) == 3
+        assert output["planning"]["target_count"] == 3
+        assert output["planning"]["plan_fallback"]["reason"] == expected_reason
+        assert output["execution_context"]["candidate_source"] == "full_catalog"
+        assert output["execution_context"]["plan_fallback"]["applied"] is True
+        assert [item["tool"] for item in output["tool_trace"]] == [
+            "PlanFallback",
+            "CandidateFallback",
+            "RankingTool",
+        ]
+        assert output["tool_trace"][-1]["input"] == {"schema": "personality", "num": 3}
 
     @pytest.mark.asyncio
     async def test_sql_retrieval_tool_returns_resource_candidates(self, _patch_llm):
@@ -679,31 +731,29 @@ class TestResourceRecommender:
         )
 
         for fragment in (
-            "CREATE TABLE learning_resources",
-            "CREATE TABLE knowledge_points",
-            "CREATE TABLE resource_knowledge",
-            "所属学科，如“物理”",
-            "资源正文或简介",
+            "learning_resources lr",
+            "knowledge_points kp",
+            "resource_knowledge rk",
+            "subject(学科，如物理)",
+            "content(简介/主题)",
             "lr.name",
             "lr.content",
-            "rk.resource_id = lr.id",
+            "rk.resource_id=lr.id",
             "kp.subject",
-            "kp.grade/kp.grade_level",
             "kp.name",
             "kp.content",
             "LEFT JOIN",
-            "完整的并列目标列表",
-            "本轮 current_message 中明确表达",
-            "召回优先",
+            "多个并列目标",
+            "current_message 为最高优先级",
             "软偏好",
-            "缩为某个子概念",
+            "只能包含一个最终 RankingTool",
         ):
             assert fragment in plan_prompt
         assert "分组 OR" in reflection_prompt
         assert "SELECT DISTINCT" in reflection_prompt
         assert "knowledge_points.subject" in reflection_prompt
         assert "num 缺失、不是整数、或不等于 2，必须输出 passed=false" in reflection_prompt
-        assert "找两个类似资源" in plan_prompt
+        assert "相似/类似某资源" in plan_prompt
 
     def test_prompt_json_keeps_chinese_characters_unescaped(self, _patch_llm):
         from app.services.agents.resource_recommender import ResourceRecommenderAgent
@@ -723,6 +773,41 @@ class TestResourceRecommender:
 
         assert '"current_message": "请推荐两个牛顿运动定律资源"' in prompt
         assert "\\u8bf7" not in prompt
+
+    def test_plan_prompt_excludes_large_upstream_payloads(self, _patch_llm):
+        from app.services.agents.resource_recommender import ResourceRecommenderAgent
+
+        prompt = ResourceRecommenderAgent(llm=_patch_llm)._render_stage_prompt(
+            "plan",
+            {
+                "current_message": "请推荐3个电学资源",
+                "recent_messages": [],
+                "target_knowledge": "TARGET_KNOWLEDGE_MARKER",
+                "weak_points": ["WEAK_POINT_MARKER"],
+                "knowledge_graph": {"GRAPH_MARKER": 0.2},
+                "learning_style": "探究式",
+                "current_level": "初级",
+                "grade_level": "高一",
+                "user_profile": {
+                    "knowledge_graph": {"PROFILE_GRAPH_MARKER": 0.2},
+                    "weak_points": ["PROFILE_WEAK_MARKER"],
+                    "preferences": {"risk_topic": "PROFILE_PREFERENCE_MARKER"},
+                },
+            },
+        )
+
+        assert '"learning_style": "探究式"' in prompt
+        assert '"current_level": "初级"' in prompt
+        assert '"grade_level": "高一"' in prompt
+        for marker in (
+            "TARGET_KNOWLEDGE_MARKER",
+            "WEAK_POINT_MARKER",
+            "GRAPH_MARKER",
+            "PROFILE_GRAPH_MARKER",
+            "PROFILE_WEAK_MARKER",
+            "PROFILE_PREFERENCE_MARKER",
+        ):
+            assert marker not in prompt
 
     @pytest.mark.parametrize(
         ("message", "sql", "schema", "num"),
@@ -892,6 +977,41 @@ class TestStudyBuddy:
             history_partner_ids=["u-3", "u-4"],
         )
 
+    def test_plan_prompt_excludes_large_upstream_payloads(self, _patch_llm):
+        from app.services.agents.study_buddy import StudyBuddyAgent
+
+        prompt = StudyBuddyAgent(llm=_patch_llm)._render_stage_prompt(
+            "plan",
+            {
+                "current_message": "请推荐3个电学学伴",
+                "recent_messages": [],
+                "target_knowledge": "TARGET_KNOWLEDGE_MARKER",
+                "weak_points": ["WEAK_POINT_MARKER"],
+                "knowledge_graph": {"GRAPH_MARKER": 0.2},
+                "learning_style": "探究式",
+                "current_level": "初级",
+                "grade_level": "高一",
+                "user_profile": {
+                    "knowledge_graph": {"PROFILE_GRAPH_MARKER": 0.2},
+                    "weak_points": ["PROFILE_WEAK_MARKER"],
+                    "preferences": {"risk_topic": "PROFILE_PREFERENCE_MARKER"},
+                },
+            },
+        )
+
+        assert '"learning_style": "探究式"' in prompt
+        assert '"current_level": "初级"' in prompt
+        assert '"grade_level": "高一"' in prompt
+        for marker in (
+            "TARGET_KNOWLEDGE_MARKER",
+            "WEAK_POINT_MARKER",
+            "GRAPH_MARKER",
+            "PROFILE_GRAPH_MARKER",
+            "PROFILE_WEAK_MARKER",
+            "PROFILE_PREFERENCE_MARKER",
+        ):
+            assert marker not in prompt
+
     @pytest.mark.asyncio
     async def test_sql_candidates_are_graph_ranked_and_exposed_without_reflection_or_summary(self, _patch_llm):
         from app.services.agents.study_buddy import StudyBuddyAgent
@@ -933,6 +1053,57 @@ class TestStudyBuddy:
         assert output["reflection_history"] == []
         agent._log_execution.assert_not_awaited()
         agent.post_process.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("side_effect", "response", "expected_reason"),
+        [
+            (asyncio.TimeoutError(), None, "plan_timeout"),
+            (ValueError("invalid JSON"), None, "plan_error"),
+            (None, {}, "empty_plan_response"),
+            (None, {"need_tool": True, "tool_calls": []}, "missing_valid_ranking_tool"),
+            (None, {"thought": "missing need_tool"}, "invalid_plan_schema"),
+        ],
+    )
+    async def test_plan_failure_falls_back_to_full_catalog_ranking(
+        self,
+        _patch_llm,
+        side_effect,
+        response,
+        expected_reason,
+    ):
+        from app.services.agents.study_buddy import StudyBuddyAgent
+
+        if side_effect is not None:
+            _patch_llm.chat_completion = AsyncMock(side_effect=side_effect)
+        else:
+            _patch_llm.chat_completion = AsyncMock(return_value=_mock_llm_response(response))
+
+        agent = StudyBuddyAgent(llm=_patch_llm)
+        agent.enrich_input = AsyncMock(side_effect=lambda data, _context: data)
+        candidates = [self._candidate(f"u-{index}") for index in range(2, 7)]
+        agent._load_all_buddy_candidates = AsyncMock(return_value=candidates)
+        agent._rank_with_graph = MagicMock(
+            return_value=[{**candidate, "graph_score": 0.9 - index * 0.1} for index, candidate in enumerate(candidates)]
+        )
+
+        result = await agent.execute(
+            {"user_id": "u-1", "current_message": "请推荐3个电学学伴", "recent_messages": []},
+            context={},
+        )
+
+        output = result["output"]
+        assert len(output["buddies"]) == 3
+        assert output["planning"]["target_count"] == 3
+        assert output["planning"]["plan_fallback"]["reason"] == expected_reason
+        assert output["execution_context"]["candidate_source"] == "full_catalog"
+        assert output["execution_context"]["plan_fallback"]["applied"] is True
+        assert [item["tool"] for item in output["tool_trace"]] == [
+            "PlanFallback",
+            "CandidateFallback",
+            "RankingTool",
+        ]
+        assert output["tool_trace"][-1]["input"] == {"schema": "personality", "num": 3}
 
     @pytest.mark.asyncio
     async def test_sql_retrieval_tool_returns_buddy_candidates(self, _patch_llm):

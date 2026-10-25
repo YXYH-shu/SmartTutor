@@ -582,7 +582,7 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       format: (v) => {
         if (!Array.isArray(v)) return '-';
         const names = v.slice(0, 2).map((item: any) =>
-          typeof item === 'object' && item !== null ? (item.name || item.username || '匿名') : String(item),
+          typeof item === 'object' && item !== null ? (item.nickname || item.username || item.name || '匿名') : String(item),
         );
         return names.length > 0 ? `${names.join('、')} (${v.length} 位)` : '-';
       },

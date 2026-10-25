@@ -21,7 +21,7 @@
  *   - Hero Slot 的呼吸动画条件 = !activeNodeId(Path Bar active 时停止呼吸)
  */
 
-import { Sparkles } from 'lucide-react';
+import { BookOpen, Clock3, Sparkles, Users } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { AGENT_CONFIGS, AGENT_DISPLAY_ORDER, AGENT_HIGHLIGHT_FIELDS } from '@/data/agentConfigs';
 import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
@@ -53,6 +53,36 @@ function HeroOutputSection({ name }: { name: string }) {
   if (fields.length === 0) {
     return (
       <p className="line-clamp-2 text-12 text-text-secondary">{traceEntry.content.slice(0, 80)}</p>
+    );
+  }
+
+  if (name === 'resource_recommender') {
+    const resources = Array.isArray(parsed.resources) ? parsed.resources : [];
+    const totalMinutes = resources.reduce((sum: number, item: any) => sum + Number(item?.time_needed_min || 0), 0);
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-[10px] text-text-secondary">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300"><BookOpen size={10} />{resources.length} 个精选资源</span>
+          {totalMinutes > 0 && <span className="inline-flex items-center gap-1 text-text-tertiary"><Clock3 size={10} />约 {totalMinutes} 分钟</span>}
+        </div>
+        <p className="line-clamp-2 text-[11px] font-medium leading-4 text-text-primary">{resources.map((item: any) => item?.title || '未命名资源').join(' · ') || '正在准备你的学习方案'}</p>
+        <p className="text-[9px] text-emerald-700 dark:text-emerald-300">点击查看学习顺序和每项任务</p>
+      </div>
+    );
+  }
+
+  if (name === 'study_buddy') {
+    const buddies = Array.isArray(parsed.buddies) ? parsed.buddies : [];
+    const modes = Array.from(new Set(buddies.map((item: any) => item?.collaboration_mode).filter(Boolean)));
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-[10px] text-text-secondary">
+          <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-cyan-700 dark:text-cyan-300"><Users size={10} />{buddies.length} 位学习伙伴</span>
+          {modes.length > 0 && <span className="truncate text-text-tertiary">{modes.join('、')}</span>}
+        </div>
+        <p className="line-clamp-2 text-[11px] font-medium leading-4 text-text-primary">{buddies.map((item: any) => item?.nickname || item?.username || item?.name || '学习伙伴').join(' · ') || '正在准备你的学习小组'}</p>
+        <p className="text-[9px] text-cyan-700 dark:text-cyan-300">点击查看组队角色和交流建议</p>
+      </div>
     );
   }
 

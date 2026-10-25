@@ -1,32 +1,24 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  Activity,
-  ArrowDown,
-  Boxes,
+  ArrowRight,
+  BookOpen,
   Check,
   ChevronLeft,
-  CornerDownLeft,
-  Database,
+  Clock3,
   ExternalLink,
+  FileQuestion,
   FileText,
-  GitBranch,
-  Network,
+  LayoutGrid,
+  Lightbulb,
   Orbit,
-  RefreshCw,
-  Route,
-  ScanSearch,
-  ShieldCheck,
-  SlidersHorizontal,
+  Play,
+  Sparkles,
+  Target,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type {
-  RecommendedResource,
-  ResourceRecommendationOutput,
-  ResourceRecommendationPlan,
-  ResourceRecommendationReflection,
-  ResourceRecommendationToolTrace,
-} from '@/types';
+import type { RecommendedResource, ResourceRecommendationOutput } from '@/types';
 import { cn } from '@/utils/cn';
 
 interface Props {
@@ -37,628 +29,209 @@ interface Props {
   isRunning: boolean;
 }
 
-interface RankingEvidence {
-  trace?: ResourceRecommendationToolTrace;
-  fallback?: ResourceRecommendationToolTrace;
-  mode: 'personality' | 'similarity' | 'unknown';
-  backend: string;
-  candidateCount: number | null;
-  requestedCount: number | null;
-  effectiveCount: number | null;
-  candidateSource: string;
-  fallbackReason?: string;
-}
-
-const REPLAY_DELAYS = [0, 180, 470, 780, 1090];
-
-const TOOL_LABELS: Record<string, string> = {
-  SqlRetrievalTool: 'SQL 召回',
-  CandidateFallback: '候选回退',
-  RankingTool: '排序引擎',
+const TYPE_LABELS: Record<string, string> = {
+  video: '视频',
+  article: '文章',
+  quiz: '测验',
+  practice: '实践',
 };
 
-const FALLBACK_LABELS: Record<string, string> = {
-  sql_not_called: '未执行 SQL，改用完整资源目录',
-  sql_empty: 'SQL 没有命中，改用完整资源目录',
-  missing_similarity_anchor: '缺少相似度锚点，降级为个性化图排序',
+const DIFFICULTY_LABELS: Record<string, string> = {
+  beginner: '入门',
+  intermediate: '进阶',
+  advanced: '挑战',
 };
 
-function asFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+function typeIcon(type?: string): LucideIcon {
+  if (type === 'video') return Play;
+  if (type === 'quiz') return FileQuestion;
+  if (type === 'practice') return Zap;
+  return FileText;
 }
 
-function formatPercent(value: unknown): string {
-  const numeric = asFiniteNumber(value);
-  return numeric === null ? '-' : `${Math.round(Math.max(0, Math.min(1, numeric)) * 100)}%`;
+function learningPosition(resource: RecommendedResource): { label: string; tone: string } {
+  if (resource.type === 'quiz') return { label: '自测巩固', tone: 'text-violet-700 bg-violet-500/10 border-violet-400/20 dark:text-violet-300' };
+  if (resource.type === 'practice') return { label: '动手实践', tone: 'text-cyan-700 bg-cyan-500/10 border-cyan-400/20 dark:text-cyan-300' };
+  if (resource.difficulty === 'beginner') return { label: '打好基础', tone: 'text-emerald-700 bg-emerald-500/10 border-emerald-400/20 dark:text-emerald-300' };
+  return { label: '拓展应用', tone: 'text-amber-700 bg-amber-500/10 border-amber-400/20 dark:text-amber-300' };
 }
 
-function scoreFor(resource: RecommendedResource): number | null {
-  return asFiniteNumber(resource.similarity_score ?? resource.graph_score);
+function learningTask(resource: RecommendedResource): string {
+  if (resource.type === 'quiz') return '完成测验后，把错题涉及的概念记入学习清单。';
+  if (resource.type === 'practice') return '边操作边记录现象，并用一句话解释背后的原理。';
+  if (resource.type === 'article') return '阅读后提炼 3 条关键知识，再尝试讲给同学听。';
+  return '观看时暂停两次，分别记录一个新概念和一个仍有疑问的地方。';
 }
 
-function scoreKind(resource: RecommendedResource): string {
-  return resource.similarity_score !== undefined ? '文本相似度' : '图模型分';
-}
-
-function formatScore(value: number | null): string {
-  return value === null ? '—' : value.toFixed(4);
-}
-
-function normalizeScore(value: number | null, maxScore: number | null): number {
-  if (value === null || maxScore === null || maxScore <= 0) return 0;
-  return Math.max(0, Math.min(1, value / maxScore));
-}
-
-function displayBackend(value: string): string {
-  if (value === 'graph') return '图模型';
-  if (value === 'text_embedding') return '文本嵌入';
-  if (value === 'deterministic_fallback') return '确定性回退';
-  return value || '待确认';
-}
-
-function displayMode(value: RankingEvidence['mode']): string {
-  if (value === 'similarity') return '相似资源';
-  if (value === 'personality') return '个性化排序';
-  return '未触发排序';
-}
-
-function getRankingEvidence(traces: ResourceRecommendationToolTrace[]): RankingEvidence {
-  const trace = [...traces].reverse().find((item) => item.tool === 'RankingTool');
-  const fallback = [...traces].reverse().find((item) => item.tool === 'CandidateFallback');
-  const rawMode = trace?.effective_schema || trace?.requested_schema || 'unknown';
-  const mode = rawMode === 'similarity' || rawMode === 'personality' ? rawMode : 'unknown';
-  return {
-    trace,
-    fallback,
-    mode,
-    backend: trace?.ranking_backend || '',
-    candidateCount: asFiniteNumber(trace?.candidate_count),
-    requestedCount: asFiniteNumber(trace?.requested_num),
-    effectiveCount: asFiniteNumber(trace?.effective_num),
-    candidateSource: trace?.candidate_source || '',
-    fallbackReason: trace?.fallback_reason || fallback?.reason,
-  };
-}
-
-function MotionStyles() {
+function ResourceMotionStyles() {
   return (
     <style>{`
-      @keyframes resource-flow-packet {
-        0% { transform: translateY(-12px); opacity: 0; }
-        18% { opacity: .95; }
-        82% { opacity: .95; }
-        100% { transform: translateY(102px); opacity: 0; }
-      }
-      @keyframes resource-flow-rise {
-        from { transform: translateY(8px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-      }
-      @keyframes resource-flow-sweep {
-        from { transform: rotate(-40deg); opacity: .35; }
-        50% { opacity: 1; }
-        to { transform: rotate(320deg); opacity: .35; }
-      }
-      @keyframes resource-flow-breathe {
-        0%, 100% { opacity: .42; transform: scale(.94); }
-        50% { opacity: 1; transform: scale(1); }
-      }
-      .resource-flow-packet { animation: resource-flow-packet 1.6s linear infinite; }
-      .resource-flow-rise { animation: resource-flow-rise .42s ease-out both; }
-      .resource-flow-sweep { animation: resource-flow-sweep 1.9s linear infinite; }
-      .resource-flow-breathe { animation: resource-flow-breathe 1.9s ease-in-out infinite; }
+      @keyframes student-resource-enter { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      @keyframes student-resource-drift { 0%,100% { transform: translate3d(0,0,0); opacity:.24; } 50% { transform: translate3d(10px,-8px,0); opacity:.52; } }
+      @keyframes student-resource-orbit { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      @keyframes student-resource-fill { from { width: 0%; } }
+      @keyframes student-resource-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(52,211,153,.08); } 50% { box-shadow: 0 0 0 8px rgba(52,211,153,.03); } }
+      .student-resource-enter { animation: student-resource-enter .46s cubic-bezier(.2,.8,.2,1) both; }
+      .student-resource-drift { animation: student-resource-drift 5.5s ease-in-out infinite; }
+      .student-resource-orbit { animation: student-resource-orbit 9s linear infinite; }
+      .student-resource-fill { animation: student-resource-fill .9s cubic-bezier(.2,.8,.2,1) both; }
+      .student-resource-pulse { animation: student-resource-pulse 2.2s ease-in-out infinite; }
       @media (prefers-reduced-motion: reduce) {
-        .resource-flow-packet, .resource-flow-rise, .resource-flow-sweep, .resource-flow-breathe { animation: none !important; }
+        .student-resource-enter,.student-resource-drift,.student-resource-orbit,.student-resource-fill,.student-resource-pulse { animation: none !important; }
       }
     `}</style>
   );
 }
 
-function Stage({
-  index,
-  title,
-  subtitle,
-  icon: Icon,
-  visible,
-  children,
-}: {
-  index: number;
-  title: string;
-  subtitle: string;
-  icon: LucideIcon;
-  visible: boolean;
-  children: ReactNode;
-}) {
+function Header({ onBack, onClose }: Pick<Props, 'onBack' | 'onClose'>) {
   return (
-    <section
-      className={cn(
-        'relative pl-10 transition-all duration-500 motion-reduce:transition-none',
-        visible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-20',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute left-0 top-0 flex h-6 w-6 items-center justify-center rounded-full border transition-colors duration-300',
-          visible
-            ? 'border-emerald-400/55 bg-emerald-500/15 text-emerald-500 shadow-[0_0_16px_rgba(52,211,153,0.12)] dark:text-emerald-300'
-            : 'border-border-subtle bg-bg-base text-text-tertiary',
-        )}
-      >
-        {visible ? <Icon size={13} /> : <span className="font-mono text-[10px]">{index + 1}</span>}
-      </span>
-      {index < REPLAY_DELAYS.length - 1 && (
-        <span className={cn('absolute left-[11px] top-7 h-[calc(100%+0.5rem)] w-px', visible ? 'bg-emerald-400/45' : 'bg-border-subtle')} />
-      )}
-      <div className="min-w-0 border-b border-border-subtle pb-3.5">
-        <div className="flex items-start justify-between gap-3">
+    <header className="relative z-20 flex h-14 items-center border-b border-border-subtle bg-bg-elevated/90 px-3 backdrop-blur-xl">
+      <button onClick={onBack} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition hover:bg-bg-base hover:text-text-primary" aria-label="返回智能体面板">
+        <ChevronLeft size={17} />
+      </button>
+      <div className="ml-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"><BookOpen size={15} /></span>
           <div className="min-w-0">
-            <p className="text-[12px] font-semibold text-text-primary">{title}</p>
-            <p className="mt-0.5 text-[10px] text-text-tertiary">{subtitle}</p>
+            <h3 className="truncate text-[12px] font-semibold text-text-primary">我的资源学习方案</h3>
+            <p className="font-mono text-[9px] uppercase tracking-[.16em] text-text-tertiary">Personal learning kit</p>
           </div>
-          {visible && <Check size={13} className="mt-0.5 shrink-0 text-emerald-500 dark:text-emerald-300" />}
         </div>
-        <div className="mt-2.5 min-w-0">{children}</div>
       </div>
-    </section>
+      <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition hover:bg-bg-base hover:text-text-primary" aria-label="关闭详情"><X size={16} /></button>
+    </header>
   );
 }
 
-function Metric({ label, value }: { label: string; value: unknown }) {
-  const numeric = asFiniteNumber(value);
-  const width = numeric === null ? 0 : Math.max(0, Math.min(1, numeric)) * 100;
+function Hero({ message, resources }: { message: string; resources: RecommendedResource[] }) {
+  const totalMinutes = resources.reduce((sum, item) => sum + (item.time_needed_min ?? 0), 0);
+  const types = new Set(resources.map((item) => item.type).filter(Boolean)).size;
+  const topics = new Set(resources.flatMap((item) => item.knowledge_tags ?? [])).size;
   return (
-    <div className="min-w-0">
-      <div className="mb-1 flex items-center justify-between gap-2 font-mono text-[10px] text-text-tertiary">
-        <span className="truncate">{label}</span>
-        <span className="text-text-secondary">{formatPercent(value)}</span>
-      </div>
-      <div className="h-1 overflow-hidden rounded-sm bg-bg-base">
-        <div className="h-full rounded-sm bg-emerald-500/80 transition-[width] duration-700 motion-reduce:transition-none" style={{ width: `${width}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function EvidenceTile({ icon: Icon, label, value, accent = 'text-text-primary' }: { icon: LucideIcon; label: string; value: string; accent?: string }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-border-subtle bg-bg-base/70 px-2.5 py-2">
-      <div className="flex items-center gap-1.5 font-mono text-[10px] text-text-tertiary">
-        <Icon size={11} />
-        <span className="truncate">{label}</span>
-      </div>
-      <p className={cn('mt-1 truncate text-[10px] font-medium', accent)}>{value}</p>
-    </div>
-  );
-}
-
-function ExecutionCircuit({
-  planHistory,
-  reflectionHistory,
-  hasSummary,
-  isBoundary,
-}: {
-  planHistory: ResourceRecommendationPlan[];
-  reflectionHistory: ResourceRecommendationReflection[];
-  hasSummary: boolean;
-  isBoundary: boolean;
-}) {
-  const retryCount = reflectionHistory.filter((item, index) => !item.passed && index + 1 < planHistory.length).length;
-  const finalReflection = reflectionHistory[reflectionHistory.length - 1];
-  const stages = [
-    { label: '规划', icon: Route, active: planHistory.length > 0 || hasSummary },
-    { label: '工具', icon: Database, active: !isBoundary && reflectionHistory.length > 0 },
-    { label: '反思', icon: ShieldCheck, active: reflectionHistory.length > 0 },
-    { label: '汇总', icon: FileText, active: hasSummary && (isBoundary || finalReflection?.passed === true) },
-  ];
-
-  return (
-    <section className="relative mt-3.5 border-b border-border-subtle pb-3">
-      <div className="mb-2 flex items-center justify-between gap-3 text-[10px] font-medium text-text-secondary">
-        <span>执行路径</span>
-        <span className={cn('shrink-0 font-mono text-[10px]', retryCount > 0 ? 'text-accent' : 'text-emerald-600 dark:text-emerald-300')}>
-          {retryCount > 0 ? `${retryCount} 次回环` : hasSummary ? '已收敛' : '等待证据'}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-1">
-        {stages.map(({ label, icon: Icon, active }, index) => (
-          <div
-            key={label}
-            className={cn(
-              'flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-1 transition-colors duration-500 motion-reduce:transition-none',
-              active
-                ? 'border-emerald-400/30 bg-emerald-500/5 text-text-primary'
-                : 'border-border-subtle bg-bg-base/45 text-text-tertiary',
-            )}
-          >
-            <span
-              className={cn(
-                'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border bg-bg-elevated transition-colors duration-500 motion-reduce:transition-none',
-                active
-                  ? 'border-emerald-400/55 text-emerald-600 shadow-[0_0_14px_rgba(52,211,153,0.14)] dark:text-emerald-300'
-                  : 'border-border-subtle text-text-tertiary',
-              )}
-            >
-              <Icon size={11} />
-            </span>
-            <span className={cn('min-w-0 truncate text-[11px] font-medium leading-none', active ? 'text-text-primary' : 'text-text-tertiary')}>{label}</span>
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-text-tertiary">{String(index + 1).padStart(2, '0')}</span>
-          </div>
-        ))}
-      </div>
-      {retryCount > 0 && (
-        <div className="mt-2 flex items-start gap-1.5 rounded-lg border border-accent/25 bg-accent-soft/25 px-2 py-1.5 text-[10px] leading-4 text-text-secondary">
-          <CornerDownLeft size={11} className="mt-0.5 shrink-0 text-accent" />
-          <span>检测到未通过的 Reflection，反馈已回到下一轮 Plan 后重新执行。</span>
+    <section className="student-resource-enter relative overflow-hidden rounded-xl border border-emerald-400/20 bg-[linear-gradient(135deg,rgba(16,185,129,.13),rgba(6,182,212,.05)_55%,transparent)] p-4 shadow-[0_16px_48px_rgba(16,185,129,.07)]">
+      <span className="student-resource-drift absolute -right-10 -top-12 h-32 w-32 rounded-full bg-emerald-400/10 blur-2xl" />
+      <span className="student-resource-drift absolute -bottom-10 left-10 h-24 w-24 rounded-full bg-cyan-400/10 blur-2xl [animation-delay:-2s]" />
+      <div className="relative flex items-start gap-3">
+        <div className="student-resource-pulse relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-400/30 bg-bg-elevated/75 text-emerald-600 dark:text-emerald-300">
+          <BookOpen size={21} />
+          <span className="student-resource-orbit absolute inset-1 rounded-lg border border-dashed border-emerald-400/25" />
         </div>
-      )}
-    </section>
-  );
-}
-
-function PlanRounds({ plans }: { plans: ResourceRecommendationPlan[] }) {
-  return (
-    <div className="mt-2.5 space-y-1.5">
-      {plans.map((plan, index) => (
-        <div key={`plan-${index}`} className="rounded-lg border border-border-subtle bg-bg-base/65 px-2.5 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold text-text-primary">第 {index + 1} 轮计划</span>
-            {plan.target_count !== undefined && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">目标 {plan.target_count} 项</span>}
-          </div>
-          <p className="mt-1 text-[11px] leading-4 text-text-secondary">{plan.recall_strategy || '未返回召回策略'}</p>
-          {(plan.ranking_criteria?.length ?? 0) > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
-              {plan.ranking_criteria?.map((criterion) => <span key={`${index}-${criterion}`} className="rounded-full bg-bg-elevated px-2 py-0.5">{criterion}</span>)}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ReflectionRounds({
-  reflections,
-  planCount,
-}: {
-  reflections: ResourceRecommendationReflection[];
-  planCount: number;
-}) {
-  return (
-    <div className="mt-3 space-y-2">
-      {reflections.map((item, index) => {
-        const returnsToPlan = !item.passed && index + 1 < planCount;
-        return (
-          <div key={`reflection-${index}`} className={cn('border-l pl-2.5', item.passed ? 'border-emerald-400/55' : 'border-accent')}>
-            <div className="flex items-center justify-between gap-2">
-              <span className={cn('font-mono text-[10px]', item.passed ? 'text-emerald-600 dark:text-emerald-300' : 'text-accent')}>REFLECTION {String(index + 1).padStart(2, '0')}</span>
-              <span className={cn('font-mono text-[10px]', item.passed ? 'text-emerald-600 dark:text-emerald-300' : 'text-status-error')}>
-                {item.passed ? item.forced_pass ? 'FORCED PASS' : 'PASS' : 'RETURN'}
-              </span>
-            </div>
-            {!item.passed && (item.improvement_suggestion || item.suggestion || item.issues?.[0]) && (
-              <p className="mt-1 text-[10px] leading-4 text-text-secondary">{item.improvement_suggestion || item.suggestion || item.issues?.[0]}</p>
-            )}
-            {returnsToPlan && (
-              <p className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-accent">
-                <CornerDownLeft size={11} /> 返回 Plan {String(index + 2).padStart(2, '0')}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function ResourceSignalCard({ resource, index, maxScore }: { resource: RecommendedResource; index: number; maxScore: number | null }) {
-  const score = scoreFor(resource);
-  const scoreWidth = normalizeScore(score, maxScore);
-  const rank = resource.rank ?? index + 1;
-  const metadata = [
-    resource.type,
-    resource.difficulty,
-    typeof resource.time_needed_min === 'number' ? `${resource.time_needed_min} 分钟` : undefined,
-  ].filter((value): value is string => Boolean(value));
-
-  return (
-    <article className="resource-flow-rise rounded-lg border border-border-subtle bg-bg-base/80 px-3 py-2.5 shadow-[0_6px_18px_rgba(0,0,0,0.06)]" style={{ animationDelay: `${index * 90}ms` }}>
-      <div className="flex items-start gap-2">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-accent/30 bg-accent-soft font-mono text-[10px] text-accent">
-          {String(rank).padStart(2, '0')}
-        </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 text-[11px] font-semibold leading-4 text-text-primary">{resource.title || '未命名资源'}</p>
-            {resource.url && (
-              <a
-                href={resource.url}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 text-text-tertiary transition-colors hover:text-accent"
-                title="打开资源"
-                aria-label={`打开资源：${resource.title}`}
-              >
-                <ExternalLink size={11} />
-              </a>
-            )}
+          <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Ready to learn</span>
+          <h4 className="mt-2 text-[14px] font-semibold tracking-tight text-text-primary">为你准备了 {resources.length} 个学习资源</h4>
+          <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-text-secondary">{message}</p>
+        </div>
+      </div>
+      <div className="relative mt-4 grid grid-cols-3 gap-2">
+        <HeroMetric label="预计用时" value={totalMinutes > 0 ? `${totalMinutes} 分钟` : '自主安排'} icon={Clock3} />
+        <HeroMetric label="资源形式" value={`${types || resources.length} 种`} icon={LayoutGrid} />
+        <HeroMetric label="覆盖主题" value={`${topics} 个`} icon={Target} accent />
+      </div>
+    </section>
+  );
+}
+
+
+function HeroMetric({ label, value, icon: Icon, accent = false }: { label: string; value: string; icon: LucideIcon; accent?: boolean }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-bg-base/60 p-2 backdrop-blur-sm">
+      <div className="flex items-center gap-1 text-[9px] text-text-tertiary"><Icon size={10} /><span className="truncate">{label}</span></div>
+      <p className={cn('mt-1 truncate text-[12px] font-semibold', accent ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-primary')}>{value}</p>
+    </div>
+  );
+}
+
+function TwoStagePath({ resourceCount }: { resourceCount: number }) {
+  return (
+    <section className="student-resource-enter rounded-xl border border-border-subtle bg-bg-elevated/65 p-3 [animation-delay:70ms]">
+      <div className="flex items-center gap-2">
+        <StageNode icon={Target} step="01" title="学习计划" subtitle="明确主题与学习节奏" active />
+        <span className="h-px flex-1 bg-gradient-to-r from-emerald-400/50 to-cyan-400/30" />
+        <StageNode icon={Sparkles} step="02" title="精选资源" subtitle={`${resourceCount} 项可直接开始`} active />
+      </div>
+    </section>
+  );
+}
+
+function StageNode({ icon: Icon, step, title, subtitle, active }: { icon: LucideIcon; step: string; title: string; subtitle: string; active: boolean }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border', active ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300' : 'border-border-subtle text-text-tertiary')}><Icon size={14} /></span>
+      <div className="min-w-0"><p className="font-mono text-[8px] text-text-tertiary">STEP {step}</p><p className="truncate text-[10px] font-semibold text-text-primary">{title}</p><p className="truncate text-[8px] text-text-tertiary">{subtitle}</p></div>
+    </div>
+  );
+}
+
+function ResourceCard({ resource, index }: { resource: RecommendedResource; index: number }) {
+  const Icon = typeIcon(resource.type);
+  const position = learningPosition(resource);
+  const rank = resource.rank ?? index + 1;
+  return (
+    <article className="student-resource-enter group relative overflow-hidden rounded-xl border border-border-subtle bg-bg-elevated/75 p-3 transition duration-300 hover:-translate-y-0.5 hover:border-emerald-400/35 hover:shadow-[0_12px_28px_rgba(16,185,129,.08)]" style={{ animationDelay: `${140 + index * 90}ms` }}>
+      <span className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-emerald-400/5" />
+      <div className="relative flex gap-3">
+        <div className="flex flex-col items-center gap-1.5">
+          <span className={cn('flex h-9 w-9 items-center justify-center rounded-xl border font-mono text-[11px] font-semibold', rank === 1 ? 'border-amber-400/35 bg-amber-400/10 text-amber-700 dark:text-amber-300' : 'border-emerald-400/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300')}>{rank}</span>
+          <span className="text-[8px] text-text-tertiary">推荐</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1"><span className={cn('inline-flex rounded-full border px-1.5 py-0.5 text-[8px]', position.tone)}>{position.label}</span><h5 className="mt-1.5 text-[11px] font-semibold leading-4 text-text-primary">{resource.title || '未命名资源'}</h5></div>
+            {resource.url && <a href={resource.url} target="_blank" rel="noreferrer" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition hover:bg-emerald-500/10 hover:text-emerald-600" aria-label="打开资源"><ExternalLink size={13} /></a>}
           </div>
-          {metadata.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
-              {metadata.map((item) => <span key={item} className="rounded-full bg-bg-elevated px-1.5 py-0.5">{item}</span>)}
-            </div>
-          )}
-          <div className="mt-2 border-t border-border-subtle pt-1.5">
-            <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-text-tertiary">
-              <span>{scoreKind(resource)}</span>
-              <span className="font-mono text-text-secondary">{formatScore(score)}</span>
-            </div>
-            <div className="h-px overflow-hidden bg-bg-elevated">
-              <div className="h-full bg-sky-400/85 transition-[width] duration-700 motion-reduce:transition-none" style={{ width: `${scoreWidth * 100}%` }} />
-            </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            <Pill icon={Icon}>{TYPE_LABELS[resource.type || ''] || resource.type || '资源'}</Pill>
+            {resource.difficulty && <Pill>{DIFFICULTY_LABELS[resource.difficulty] || resource.difficulty}</Pill>}
+            {resource.time_needed_min !== undefined && <Pill icon={Clock3}>{resource.time_needed_min} 分钟</Pill>}
           </div>
-          {resource.similarity_reference_title && (
-            <p className="mt-1.5 flex items-center gap-1 text-[10px] leading-4 text-text-tertiary">
-              <GitBranch size={10} className="shrink-0 text-sky-500 dark:text-sky-300" />
-              <span className="min-w-0 truncate">锚点：{resource.similarity_reference_title}</span>
-            </p>
+          {resource.knowledge_tags && resource.knowledge_tags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">{resource.knowledge_tags.slice(0, 3).map((tag) => <span key={tag} className="rounded-full border border-border-subtle bg-bg-base/70 px-1.5 py-0.5 text-[9px] text-text-secondary">{tag}</span>)}</div>
           )}
-          {resource.recommend_reason && (
-            <p className="mt-1.5 text-[10px] leading-4 text-text-secondary">
-              <span className="mr-1 text-text-tertiary">推荐依据</span>
-              {resource.recommend_reason}
-            </p>
-          )}
+          <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-emerald-500/5 px-2 py-1.5 text-[9px] leading-4 text-text-secondary"><Check size={10} className="mt-0.5 shrink-0 text-emerald-500" /><span>{learningTask(resource)}</span></div>
         </div>
       </div>
     </article>
   );
 }
 
-function ToolEvent({ trace }: { trace: ResourceRecommendationToolTrace }) {
-  const isFallback = trace.tool === 'CandidateFallback';
-  const label = TOOL_LABELS[trace.tool] || trace.tool;
-  const detail = isFallback
-    ? FALLBACK_LABELS[trace.reason || ''] || trace.reason || '已应用候选回退'
-    : trace.status === 'executed'
-      ? '已完成'
-      : trace.status || '未触发';
+function Pill({ children, icon: Icon }: { children: ReactNode; icon?: LucideIcon }) {
+  return <span className="inline-flex items-center gap-1 rounded-full bg-bg-base px-1.5 py-0.5 text-[9px] text-text-tertiary">{Icon && <Icon size={9} />}{children}</span>;
+}
+
+function LearningTips({ resources }: { resources: RecommendedResource[] }) {
+  const beginner = resources.find((item) => item.difficulty === 'beginner');
+  const quiz = resources.find((item) => item.type === 'quiz');
   return (
-    <div className="flex min-w-0 items-center gap-2 border-t border-border-subtle py-2 first:border-t-0 first:pt-0">
-      <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border', isFallback ? 'border-amber-400/40 bg-accent-soft text-accent' : 'border-sky-400/35 bg-sky-400/10 text-sky-500 dark:text-sky-300')}>
-        {isFallback ? <ArrowDown size={11} /> : <Database size={11} />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-mono text-[10px] text-text-secondary">{label}</p>
-        <p className="truncate text-[10px] text-text-tertiary">{detail}</p>
+    <section className="student-resource-enter rounded-xl border border-amber-400/20 bg-[linear-gradient(135deg,rgba(251,191,36,.08),transparent)] p-3 [animation-delay:380ms]">
+      <div className="flex items-start gap-2.5">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-400/10 text-amber-600 dark:text-amber-300"><Lightbulb size={15} /></span>
+        <div className="min-w-0"><h4 className="text-[10px] font-semibold text-text-primary">怎么开始更轻松？</h4><p className="mt-1 text-[9px] leading-4 text-text-secondary">{beginner ? `建议先学习《${beginner.title}》，建立基础后再进入拓展内容。` : '建议先从最熟悉的主题开始，再逐步挑战更复杂的内容。'}{quiz ? ' 最后用测验检查掌握情况。' : ''}</p></div>
       </div>
-      <span className="shrink-0 font-mono text-[10px] text-text-tertiary">{trace.count ?? 0}</span>
-    </div>
+    </section>
   );
 }
 
 function WaitingState({ isRunning }: { isRunning: boolean }) {
   return (
-    <div className="relative mt-6 overflow-hidden rounded-lg border border-emerald-400/25 bg-emerald-500/5 px-4 py-5 shadow-[0_8px_24px_rgba(16,185,129,0.06)]">
-      <div className="flex items-center gap-4">
-        <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-bg-base/50 text-emerald-500 dark:text-emerald-300">
-          {isRunning && (
-            <>
-              <span className="resource-flow-breathe absolute inset-2 rounded-full border border-emerald-400/20" />
-              <span className="resource-flow-sweep absolute left-1/2 top-1/2 h-px w-5 origin-left bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.72)]" />
-            </>
-          )}
-          <ScanSearch size={18} strokeWidth={1.6} />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold text-text-primary">{isRunning ? '正在生成资源推荐' : '本轮暂无资源推荐结果'}</p>
-          <p className="mt-1 text-[10px] leading-4 text-text-tertiary">
-            {isRunning ? '后端暂不推送阶段进度，任务完成后将显示真实执行轨迹。' : '该智能体尚未在本轮流程中完成执行。'}
-          </p>
-        </div>
-      </div>
+    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden p-6 text-center">
+      <span className="student-resource-drift absolute h-44 w-44 rounded-full bg-emerald-400/10 blur-3xl" />
+      <div className="student-resource-pulse relative flex h-20 w-20 items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/8 text-emerald-600"><BookOpen size={30} /><span className="student-resource-orbit absolute inset-2 rounded-xl border border-dashed border-emerald-400/30" /></div>
+      <h4 className="relative mt-5 text-[13px] font-semibold text-text-primary">{isRunning ? '正在准备学习资源' : '本轮暂无资源推荐'}</h4>
+      <p className="relative mt-1 max-w-[220px] text-[10px] leading-4 text-text-tertiary">{isRunning ? '正在理解你的学习目标，并组合最合适的学习内容。' : '发送资源推荐请求后，这里会出现你的个性化学习方案。'}</p>
     </div>
   );
 }
 
 export function ResourceRecommendationFlow({ onBack, onClose, output, message, isRunning }: Props) {
-  const [visibleStages, setVisibleStages] = useState(0);
   const [replayKey, setReplayKey] = useState(0);
-  const requestMessage = message || '本轮对话的资源推荐请求';
-
-  useEffect(() => {
-    setVisibleStages(0);
-    if (!output) return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      setVisibleStages(REPLAY_DELAYS.length);
-      return;
-    }
-    const timers = REPLAY_DELAYS.map((delay, index) => window.setTimeout(() => setVisibleStages(index + 1), delay));
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [output, replayKey]);
-
-  const rawPlanHistory = output?.plan_history ?? [];
-  const planning: ResourceRecommendationPlan | undefined = output?.planning ?? rawPlanHistory[rawPlanHistory.length - 1];
-  const planHistory = rawPlanHistory.length > 0 ? rawPlanHistory : planning ? [planning] : [];
-  const traces = output?.tool_trace ?? [];
-  const recallTraces = traces.filter((trace) => trace.tool === 'SqlRetrievalTool' || trace.tool === 'CandidateFallback');
-  const evidence = useMemo(() => getRankingEvidence(traces), [traces]);
-  const reflectionHistory = output?.reflection_history ?? [];
-  const reflection: ResourceRecommendationReflection | undefined = output?.reflection ?? reflectionHistory[reflectionHistory.length - 1];
-  const rankedResources = useMemo(() => (output?.resources ?? []).slice(0, 5), [output?.resources]);
-  const rankPreview = rankedResources.slice(0, 3);
-  const maxScore = useMemo(() => Math.max(...rankedResources.map((resource) => scoreFor(resource) ?? 0), 0) || null, [rankedResources]);
-  const fallbackText = evidence.fallbackReason ? FALLBACK_LABELS[evidence.fallbackReason] || evidence.fallbackReason : '';
-  const isBoundary = planHistory[planHistory.length - 1]?.need_tool === false;
-  const finalReflection = reflectionHistory[reflectionHistory.length - 1];
-  const hasSummary = Boolean(output?.recommendation_text || rankedResources.length > 0);
-  const summaryAccepted = isBoundary || finalReflection?.passed === true;
-
+  const resources = useMemo(() => (output?.resources ?? []).slice(0, 6), [output?.resources]);
+  useEffect(() => { setReplayKey((value) => value + 1); }, [output]);
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-bg-elevated animate-slide-in-right">
-      <MotionStyles />
-      <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="shrink-0 rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-base hover:text-text-primary"
-            title="返回智能体面板"
-            aria-label="返回智能体面板"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-emerald-400/30 bg-emerald-500/10 text-emerald-500 dark:text-emerald-300">
-            <Network size={16} />
-          </div>
-          <div className="min-w-0">
-            <h3 className="truncate text-[14px] font-display font-semibold text-text-primary">资源推荐</h3>
-            <p className="font-mono text-[10px] text-text-tertiary">RECOMMENDATION TRACE</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {output && (
-            <button
-              type="button"
-              onClick={() => setReplayKey((value) => value + 1)}
-              className="rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-base hover:text-emerald-500"
-              title="重播流程"
-              aria-label="重播流程"
-            >
-              <RefreshCw size={15} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-base hover:text-text-primary"
-            title="关闭详情"
-            aria-label="关闭详情"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin">
-        <section className="relative overflow-hidden rounded-lg border border-border-subtle bg-bg-base/80 p-3 shadow-[0_8px_22px_rgba(0,0,0,0.06)]">
-          {isRunning && <span className="resource-flow-packet absolute right-4 top-0 h-1.5 w-1.5 rounded-full bg-emerald-400" />}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-medium text-text-secondary">当前会话请求</span>
-            <span className={cn('flex shrink-0 items-center gap-1 font-mono text-[10px]', isRunning ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-tertiary')}>
-              <span className={cn('h-1.5 w-1.5 rounded-full', isRunning ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]' : 'bg-text-tertiary')} />
-              {isRunning ? 'LIVE' : output ? 'COMPLETE' : 'IDLE'}
-            </span>
-          </div>
-          <p className="mt-1.5 text-[12px] font-medium leading-5 text-text-primary">{requestMessage}</p>
-          <div className="mt-2.5 flex flex-wrap gap-1 text-[10px] text-text-secondary">
-            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5">SQL 召回</span>
-            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5">{output ? displayMode(evidence.mode) : '排序等待中'}</span>
-            {output && evidence.backend && <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5">{displayBackend(evidence.backend)}</span>}
-          </div>
-        </section>
-
-        {output ? (
-          <div className="mt-5 space-y-5">
-            <ExecutionCircuit
-              planHistory={planHistory}
-              reflectionHistory={reflectionHistory}
-              hasSummary={hasSummary}
-              isBoundary={isBoundary}
-            />
-
-            <Stage index={0} title="Plan" subtitle={`${planHistory.length || 1} 轮规划`} icon={Route} visible={visibleStages >= 1}>
-              {planHistory.length > 0 ? <PlanRounds plans={planHistory} /> : <p className="text-[10px] text-text-tertiary">本轮未返回 Plan 证据。</p>}
-            </Stage>
-
-            <Stage index={1} title="工具执行 · SQL" subtitle={`${recallTraces.length} 次真实调用`} icon={ScanSearch} visible={visibleStages >= 2}>
-              {recallTraces.length > 0 ? (
-                <div className="border-y border-border-subtle py-2">
-                  {recallTraces.map((trace, index) => <ToolEvent key={`${trace.tool}-${index}`} trace={trace} />)}
-                </div>
-              ) : (
-                <p className="text-[10px] leading-4 text-text-tertiary">本轮计划未调用 SQL 召回，排序引擎将按运行结果处理候选集。</p>
-              )}
-            </Stage>
-
-            <Stage index={2} title="工具执行 · 排序" subtitle={`${displayMode(evidence.mode)} · ${displayBackend(evidence.backend)}`} icon={SlidersHorizontal} visible={visibleStages >= 3}>
-              <div className="grid grid-cols-2 gap-2">
-                <EvidenceTile icon={Orbit} label="排序模式" value={displayMode(evidence.mode)} accent="text-sky-600 dark:text-sky-300" />
-                <EvidenceTile icon={Boxes} label="候选来源" value={evidence.candidateSource || '未返回'} />
-                <EvidenceTile icon={Database} label="候选数量" value={evidence.candidateCount === null ? '—' : `${evidence.candidateCount}`} />
-                <EvidenceTile icon={Activity} label="返回数量" value={evidence.effectiveCount === null ? `${rankedResources.length}` : `${evidence.effectiveCount}`} />
-              </div>
-              {fallbackText && (
-                <div className="mt-3 flex items-start gap-2 border-l-2 border-accent bg-accent-soft/40 px-2.5 py-2 text-[10px] leading-4 text-text-secondary">
-                  <ArrowDown size={13} className="mt-0.5 shrink-0 text-accent" />
-                  <span>{fallbackText}</span>
-                </div>
-              )}
-              {evidence.requestedCount !== null && evidence.requestedCount !== evidence.effectiveCount && (
-                <p className="mt-2 font-mono text-[10px] text-text-tertiary">
-                  请求 {evidence.requestedCount} 项，实际按 {evidence.trace?.num_policy || '运行策略'} 返回 {evidence.effectiveCount ?? rankedResources.length} 项
-                </p>
-              )}
-              {rankPreview.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-text-tertiary">
-                    <span className="h-px flex-1 bg-border-subtle" />
-                    Rank signal
-                    <span className="h-px flex-1 bg-border-subtle" />
-                  </div>
-                  <div className="space-y-2">
-                    {rankPreview.map((resource, index) => <ResourceSignalCard key={`${resource.id}-${resource.similarity_reference_id ?? 'personal'}-${index}`} resource={resource} index={index} maxScore={maxScore} />)}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-[10px] text-text-tertiary">本轮未返回可排序资源。</p>
-              )}
-            </Stage>
-
-            <Stage index={3} title="质量校验" subtitle={`${reflectionHistory.length} 轮 Reflection`} icon={ShieldCheck} visible={visibleStages >= 4}>
-              {isBoundary ? (
-                <p className="text-[10px] leading-4 text-text-tertiary">本轮被识别为非资源推荐请求，跳过工具执行与 Reflection，直接输出边界说明。</p>
-              ) : reflection ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-2">
-                    <Metric label="覆盖" value={reflection.coverage_score} />
-                    <Metric label="难度" value={reflection.difficulty_match} />
-                    <Metric label="多样" value={reflection.diversity_score} />
-                  </div>
-                  <div className={cn('flex items-center gap-1.5 text-[10px]', reflection.passed ? 'text-emerald-600 dark:text-emerald-300' : 'text-status-error')}>
-                    <ShieldCheck size={12} />
-                    <span>{reflection.passed ? '校验通过' : '校验未通过'}</span>
-                    {reflection.forced_pass && <span className="font-mono text-[10px] text-text-tertiary">FORCED</span>}
-                  </div>
-                  {!reflection.passed && reflection.improvement_suggestion && <p className="text-[10px] leading-4 text-text-secondary">{reflection.improvement_suggestion}</p>}
-                  {reflectionHistory.length > 0 && <ReflectionRounds reflections={reflectionHistory} planCount={planHistory.length} />}
-                </div>
-              ) : (
-                <p className="text-[10px] text-text-tertiary">本轮未触发 Reflection。</p>
-              )}
-            </Stage>
-
-            <Stage index={4} title="推荐汇总" subtitle={summaryAccepted ? isBoundary ? '边界分支输出' : 'Reflection 放行后的最终输出' : '等待 Reflection 放行'} icon={FileText} visible={visibleStages >= 5}>
-              {summaryAccepted && hasSummary ? (
-                <>
-                  <p className="border-l-2 border-emerald-400/70 bg-emerald-500/5 px-3 py-2 text-[11px] leading-5 text-text-secondary">
-                    {output.recommendation_text || '本轮未返回推荐文案。'}
-                  </p>
-                  {rankedResources.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {rankedResources.map((resource, index) => <ResourceSignalCard key={`summary-${resource.id}-${resource.similarity_reference_id ?? 'personal'}-${index}`} resource={resource} index={index} maxScore={maxScore} />)}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="text-[10px] leading-4 text-text-tertiary">尚未获得通过的 Reflection 证据，Summary 不展示为最终推荐。</p>
-              )}
-            </Stage>
-          </div>
-        ) : (
-          <WaitingState isRunning={isRunning} />
-        )}
+    <div className="absolute inset-0 z-30 flex flex-col overflow-hidden bg-bg-base">
+      <ResourceMotionStyles />
+      <Header onBack={onBack} onClose={onClose} />
+      <div key={replayKey} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-3 [scrollbar-width:thin]">
+        {output ? <div className="space-y-3"><Hero message={message || '本轮资源推荐请求'} resources={resources} /><TwoStagePath resourceCount={resources.length} /><div className="flex items-center justify-between px-0.5"><h4 className="text-[11px] font-semibold text-text-primary">精选资源</h4><span className="text-[9px] text-text-tertiary">按推荐顺序查看</span></div><div className="space-y-2">{resources.map((resource, index) => <ResourceCard key={`${resource.id}-${index}`} resource={resource} index={index} />)}</div><LearningTips resources={resources} /></div> : <WaitingState isRunning={isRunning} />}
       </div>
     </div>
   );
