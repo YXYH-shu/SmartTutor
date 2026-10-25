@@ -1,10 +1,10 @@
-"""学习路径规划 —— 命令行入口（REKT 后端，最小闭环）。
+"""学习路径规划 —— 命令行入口（KT 后端，最小闭环）。
 
 给定学生 ID 和可选的起始题目 ID，在学生做题序列中定位目标题；若该题预测答对
 概率较高，就向后滑动到下一题，直到找到低概率题或序列末题。随后用 DSMOEA 同款的
 双策略多目标遗传算法搜索一个尽量短的推荐练习序列。
 
-打分器用的是 `kt-runtime-skill` 里已经训练好的 REKT 模型（不需要重新训练），
+打分器用的是 `kt-runtime-skill` 里已经训练好的 KT 模型（不需要重新训练），
 数据也直接读 `kt-runtime-skill` 的数据集，不需要做任何格式转换。
 """
 
@@ -23,8 +23,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from lpp_runtime.data.rekt_provider import RektHistoryProvider  # noqa: E402
-from lpp_runtime.scorers.rekt_scorer import RektScorer  # noqa: E402
+from lpp_runtime.data.kt_provider import KTHistoryProvider  # noqa: E402
+from lpp_runtime.scorers.kt_scorer import KTScorer  # noqa: E402
 from lpp_runtime.search.genetic_algorithm import GeneticAlgorithmBase  # noqa: E402
 
 
@@ -38,7 +38,7 @@ QUESTION_TYPE_NAMES = {
 
 
 def parse_cli_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="基于 REKT 的学习路径规划最小闭环")
+    parser = argparse.ArgumentParser(description="基于 KT 的学习路径规划最小闭环")
     parser.add_argument("--student-id", type=str, required=True)
     parser.add_argument(
         "--target-question-id",
@@ -51,6 +51,10 @@ def parse_cli_args(argv=None) -> argparse.Namespace:
         type=str,
         default="",
         help="按优先级排列的 KT 薄弱知识点 ID，逗号分隔；显式题号优先",
+    )
+    parser.add_argument(
+        "--topic-skill-ids", type=str, default="",
+        help="主题内知识点 ID，逗号分隔；限制所有推荐并定义公共 P1-P5 教学顺序",
     )
     parser.add_argument("--length", type=int, default=10, help="用作历史上下文的交互条数")
     parser.add_argument("--pop-size", type=int, default=50)
@@ -82,6 +86,108 @@ def dedupe_keep_order(question_ids: list[int]) -> list[int]:
         seen.add(q)
         deduped.append(q)
     return deduped
+
+
+class TopicScopedScorer:
+    """Keep real history intact while fencing every generated resource to a topic.
+
+    GA mutation queries questions_of_skill dynamically, so filtering only its
+    initial pools would leave a route back into the global catalog.
+    """
+
+    def __init__(self, scorer: KTScorer, topic_skill_ids: list[int]):
+        self._scorer = scorer
+        self.topic_skill_ids = dedupe_keep_order(topic_skill_ids)
+        allowed = set(self.topic_skill_ids)
+        self.allowed_question_ids = {
+            q for q in range(scorer.question_universe_size)
+            if (skills := set(scorer.skills_of(q))) and skills <= allowed
+        }
+        actual_skills = {
+            sid for q in self.allowed_question_ids for sid in scorer.skills_of(q)
+        }
+        if len(allowed & actual_skills) < FIXED_RECOMMENDATION_SIZE:
+            raise ValueError("主题内可用知识点不足，无法生成固定 5 个不同知识点")
+        if allowed - actual_skills:
+            raise ValueError(f"主题知识点没有可用的纯主题题目: {sorted(allowed - actual_skills)}")
+
+    def __getattr__(self, name):
+        return getattr(self._scorer, name)
+
+    def questions_of_skill(self, skill_id: int) -> list[int]:
+        return [int(q) for q in self._scorer.questions_of_skill(skill_id)
+                if int(q) in self.allowed_question_ids]
+
+    def knowledge_sequence(self, skill_id: int) -> dict[str, object]:
+        sequence = self._scorer.knowledge_sequence(skill_id)
+        allowed = set(self.topic_skill_ids)
+        return {
+            key: point if point and int(point["knowledge_point_id"]) in allowed else None
+            for key, point in sequence.items()
+        }
+
+
+def choose_topic_targets(
+    *, scorer: TopicScopedScorer, question_ids: list[int],
+    target_question_id: int | None, preferred_skill_ids: list[int],
+) -> tuple[list[tuple[int | None, int]], str]:
+    """Choose real topic history, or an actual catalog target when none exists."""
+    eligible = [i for i, q in enumerate(question_ids) if q in scorer.allowed_question_ids]
+    if target_question_id is not None:
+        if target_question_id not in scorer.allowed_question_ids:
+            raise ValueError(f"显式目标题 {target_question_id} 不属于指定主题")
+        matches = [i for i in eligible if question_ids[i] == target_question_id]
+        if not matches:
+            return [(None, target_question_id)], "explicit_catalog_question"
+        # An explicit target is the user's requested question, not merely a
+        # starting location from which to search for a different weak question.
+        return [(matches[-1], target_question_id)], "explicit_question"
+    # Topic-mode preferred skills are the current learning goal. Select an
+    # actual goal question even if other related prerequisites have history.
+    for sid in preferred_skill_ids:
+        matches = [i for i in eligible if sid in scorer.skills_of(question_ids[i])]
+        if matches:
+            index = matches[-1]
+            return [(index, question_ids[index])], "kt_weak_skill"
+    for sid in preferred_skill_ids:
+        candidates = sorted(scorer.questions_of_skill(sid))
+        if candidates:
+            return [(None, candidates[0])], "topic_catalog"
+    if eligible:
+        start = eligible[-1]
+        source = "topic_history"
+        for sid in preferred_skill_ids:
+            matches = [i for i in eligible if sid in scorer.skills_of(question_ids[i])]
+            if matches:
+                start = matches[-1]
+                source = "kt_weak_skill"
+                break
+    else:
+        for sid in dedupe_keep_order(preferred_skill_ids + scorer.topic_skill_ids):
+            candidates = sorted(scorer.questions_of_skill(sid))
+            if candidates:
+                return [(None, candidates[0])], "topic_catalog"
+        raise ValueError("指定主题内没有可用目标题")
+    return [(i, question_ids[i]) for i in eligible if i >= start], source
+
+
+def build_catalog_prediction_inputs(
+    question_ids: list[int], is_corrects: list[int], target_question: int,
+    length: int, device: torch.device,
+) -> tuple[list[int], list[int], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Use recent actual interactions without adding an answer for a catalog target.
+
+    next_a is a GA compatibility tensor. Its values come only from actual
+    historical answers; the target's unknown answer is never recorded.
+    """
+    if length < 1:
+        raise ValueError("主题规划历史窗口 length 必须大于 0")
+    hist_q_list = question_ids[-length:]
+    hist_a_list = is_corrects[-length:]
+    hist_q = torch.tensor([hist_q_list], dtype=torch.long, device=device)
+    hist_a = torch.tensor([hist_a_list], dtype=torch.long, device=device)
+    next_q = torch.tensor([hist_q_list[1:] + [target_question]], dtype=torch.long, device=device)
+    return hist_q_list, hist_a_list, hist_q, hist_a, next_q, hist_a.clone()
 
 
 def find_starting_target_index(
@@ -141,7 +247,7 @@ def build_prediction_inputs(
 
     hist_q = torch.tensor(hist_q_list, dtype=torch.long).reshape(1, len(hist_q_list)).to(device)
     hist_a = torch.tensor(hist_a_list, dtype=torch.long).reshape(1, len(hist_a_list)).to(device)
-    # REKT 只读取 next_q 的最后一位；完整的右移序列保持与既有 GA 接口对齐。
+    # KT 只读取 next_q 的最后一位；完整的右移序列保持与既有 GA 接口对齐。
     next_q_list = hist_q_list[1:] + [target_question]
     next_a_list = hist_a_list[1:] + [target_answer]
     next_q = torch.tensor(next_q_list, dtype=torch.long).reshape(1, len(next_q_list)).to(device)
@@ -150,11 +256,13 @@ def build_prediction_inputs(
 
 
 def build_question_payload(
-    scorer: RektScorer, question_id: int, order: int | None = None
+    scorer: KTScorer, question_id: int, order: int | None = None
 ) -> dict[str, object]:
     """构造稳定的题目 JSON，供 Agent 生成学生侧表达。"""
     item = scorer.question_metadata(question_id)
     skills = scorer.skills_of(question_id)
+    if isinstance(scorer, TopicScopedScorer) and int(question_id) not in scorer.allowed_question_ids:
+        raise ValueError(f"题目 {question_id} 不属于指定主题")
     raw_type = str(item.get("type") or "")
     payload: dict[str, object] = {
         "question_id": int(question_id),
@@ -167,7 +275,7 @@ def build_question_payload(
         ],
         "difficulty": float(item["difficulty"]) if item.get("difficulty") is not None else None,
         "grade": item.get("grade"),
-        # 当前 REKT 题库未提供单选题选项；保留该字段，让调用方不能误以为选项丢失。
+        # 当前 KT 题库未提供单选题选项；保留该字段，让调用方不能误以为选项丢失。
         "options": list(item.get("options") or []),
     }
     if order is not None:
@@ -176,7 +284,7 @@ def build_question_payload(
 
 
 def build_related_questions(
-    scorer: RektScorer,
+    scorer: KTScorer,
     skill_id: int,
     excluded_question_ids: set[int],
     limit: int = RELATED_QUESTION_LIMIT,
@@ -213,14 +321,14 @@ def build_purpose_and_effect(
 
 
 def build_plan_items(
-    scorer: RektScorer,
+    scorer: KTScorer,
     recommended_questions: list[dict[str, object]],
     target: dict[str, object],
 ) -> list[dict[str, object]]:
     """将 5 道主推荐题扩展为 Agent 可直接消费的详细规划信息。"""
     plan_items = []
     for question in recommended_questions:
-        # 关联题只排除当前题和目标题。REKT 题库中一个知识点通常只有 3 道题，
+        # 关联题只排除当前题和目标题。KT 题库中一个知识点通常只有 3 道题，
         # 因此允许关联到同一组主推荐中的另一道题，避免资源列表全为空。
         excluded_question_ids = {
             int(question["question_id"]),
@@ -311,6 +419,7 @@ def build_top_k_knowledge(
     target_sid: int,
     top_k: int,
     min_sample: int,
+    allowed_skill_ids: set[int] | None = None,
 ) -> tuple[list[tuple[int, float, int]], bool]:
     """从经验矩阵里挑前 K 个知识点，不足时逐步放宽采样门槛补齐。"""
     thresholds = sorted({min_sample, 3, 1}, reverse=True)
@@ -323,6 +432,8 @@ def build_top_k_knowledge(
         if len(results) >= top_k:
             break
         for sid, ace, wt in collect_positive_ace_skills(ace_col, weight_col, target_sid, th):
+            if allowed_skill_ids is not None and sid not in allowed_skill_ids:
+                continue
             if sid in seen:
                 continue
             seen.add(sid)
@@ -336,12 +447,14 @@ def build_top_k_knowledge(
 
 def build_knowledge_point_recommendations(
     *,
-    scorer: RektScorer,
+    scorer: KTScorer,
     top_k_knowledge: list[tuple[int, float, int]],
     recommended_questions: list[dict[str, object]],
     target_skills: list[int],
     fallback_skill_ids: list[int] | None = None,
     fixed_size: int = FIXED_RECOMMENDATION_SIZE,
+    topic_skill_ids: list[int] | None = None,
+    core_skill_ids: list[int] | None = None,
 ) -> list[dict[str, object]]:
     """Build the public P1--P5 path from existing runtime evidence.
 
@@ -361,6 +474,16 @@ def build_knowledge_point_recommendations(
             except (TypeError, ValueError):
                 continue
     candidate_ids.extend(int(skill_id) for skill_id in (fallback_skill_ids or []))
+
+    if topic_skill_ids is not None:
+        allowed_skills = set(topic_skill_ids)
+        # Preserve current core goals before optional background. Then retain
+        # a pedagogical anchor and fill remaining places by causal benefit.
+        candidate_ids = list(target_skills) + (core_skill_ids or []) + topic_skill_ids[:1] + candidate_ids
+        relevant_ids = dedupe_keep_order([
+            sid for sid in candidate_ids if sid in allowed_skills
+        ])[:fixed_size]
+        candidate_ids = [sid for sid in topic_skill_ids if sid in set(relevant_ids)]
 
     selected: list[dict[str, object]] = []
     seen: set[int] = set()
@@ -387,7 +510,7 @@ def build_knowledge_point_recommendations(
 
 
 def fill_recommendation_to_fixed_size(
-    scorer: RektScorer,
+    scorer: KTScorer,
     original_questions: list[int],
     hist_q_list: list[int],
     target_question: int,
@@ -405,7 +528,11 @@ def fill_recommendation_to_fixed_size(
     4. 从更宽的候选池兜底。
     """
     history_questions = {int(q) for q in hist_q_list}
-    filled = [q for q in dedupe_keep_order(original_questions) if q != target_question]
+    allowed_questions = (
+        scorer.allowed_question_ids if isinstance(scorer, TopicScopedScorer) else None
+    )
+    filled = [q for q in dedupe_keep_order(original_questions)
+              if q != target_question and (allowed_questions is None or q in allowed_questions)]
     original_deduped = list(filled)
     seen = set(filled)
 
@@ -415,6 +542,8 @@ def fill_recommendation_to_fixed_size(
             if len(filled) >= fixed_size:
                 return
             if q == target_question or q in seen:
+                continue
+            if allowed_questions is not None and q not in allowed_questions:
                 continue
             if not allow_history and q in history_questions:
                 continue
@@ -456,8 +585,8 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
 
     weights = tuple(float(x) for x in args.weights.split(","))
 
-    scorer = RektScorer()
-    history_provider = RektHistoryProvider(scorer)
+    scorer = KTScorer()
+    history_provider = KTHistoryProvider(scorer)
     device = scorer.device
 
     history = history_provider.get_history(args.student_id)
@@ -470,18 +599,44 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
         for value in str(args.preferred_skill_ids or "").split(",")
         if value.strip()
     ]
-    initial_target_index, initial_target_source = choose_starting_target_index(
-        question_ids=history.question_ids,
-        target_question_id=args.target_question_id,
-        preferred_skill_ids=preferred_skill_ids,
-        skills_for_question=scorer.skills_of,
-        length=length,
-    )
+    topic_skill_ids = dedupe_keep_order([
+        int(value.strip())
+        for value in str(getattr(args, "topic_skill_ids", "") or "").split(",")
+        if value.strip()
+    ])
+    topic_targets = None
+    if topic_skill_ids:
+        scorer = TopicScopedScorer(scorer, topic_skill_ids)
+        topic_targets, initial_target_source = choose_topic_targets(
+            scorer=scorer, question_ids=history.question_ids,
+            target_question_id=args.target_question_id,
+            preferred_skill_ids=preferred_skill_ids,
+        )
+        initial_target_index = topic_targets[0][0]
+    else:
+        initial_target_index, initial_target_source = choose_starting_target_index(
+            question_ids=history.question_ids,
+            target_question_id=args.target_question_id,
+            preferred_skill_ids=preferred_skill_ids,
+            skills_for_question=scorer.skills_of,
+            length=length,
+        )
     target_index = initial_target_index
     scanned_target_indices = []
     forced_last_target = False
 
     while True:
+        if topic_targets is not None:
+            target_index, target_question = topic_targets[len(scanned_target_indices)]
+        if topic_targets is not None and target_index is None:
+            inputs = build_catalog_prediction_inputs(
+                history.question_ids, history.is_corrects, target_question, length, device
+            )
+        else:
+            inputs = build_prediction_inputs(
+                history.question_ids, history.is_corrects, target_index, length, device
+            )
+            target_question = history.question_ids[target_index]
         (
             hist_q_list,
             hist_a_list,
@@ -489,33 +644,39 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
             hist_a,
             next_q,
             next_a,
-        ) = build_prediction_inputs(
-            history.question_ids, history.is_corrects, target_index, length, device
-        )
-        target_question = history.question_ids[target_index]
+        ) = inputs
         with torch.inference_mode():
             pred = scorer.forward_batch(hist_q, hist_a, next_q)
         base = float(pred[:, -1].item())
         scanned_target_indices.append(target_index)
 
-        is_last_question = target_index == len(history.question_ids) - 1
+        is_last_question = (
+            len(scanned_target_indices) == len(topic_targets)
+            if topic_targets is not None
+            else target_index == len(history.question_ids) - 1
+        )
         if base < 0.5 or is_last_question:
             forced_last_target = is_last_question and base >= 0.5
             break
-        target_index += 1
+        if topic_targets is None:
+            target_index += 1
 
     target_payload = build_question_payload(scorer, target_question)
     wrong_count = sum(1 for answer in hist_a_list if answer == 0)
 
     target_skills = scorer.skills_of(target_question)
     if not target_skills:
-        raise ValueError(f"题目 {target_question} 在 REKT 数据里没有对应的知识点映射")
+        raise ValueError(f"题目 {target_question} 在 KT 数据里没有对应的知识点映射")
 
     # 只保留能查到知识点的有效题目 id（全量 range 里可能含不存在的 id，
-    # 比如 REKT 题目是 1..1002，但 question_universe_size=1003 含 id 0）。
+    # 比如 KT 题目是 1..1002，但 question_universe_size=1003 含 id 0）。
     question_universe = [
         q for q in range(scorer.question_universe_size) if scorer.skills_of(q)
     ]
+    if topic_skill_ids:
+        question_universe = [q for q in question_universe if q in scorer.allowed_question_ids]
+        if len(set(question_universe) - {target_question}) < FIXED_RECOMMENDATION_SIZE:
+            raise ValueError("主题内可用题目不足，无法生成固定 5 道不同练习题")
     candidate_pool_all = question_universe
     candidate_pool_default = question_universe
 
@@ -586,6 +747,7 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
         target_sid=target_sid,
         top_k=args.top_k_knowledge,
         min_sample=args.min_sample,
+        allowed_skill_ids=set(topic_skill_ids) if topic_skill_ids else None,
     )
     ga_questions = result["recommended_questions"]
     recommended_questions, _ = fill_recommendation_to_fixed_size(
@@ -607,7 +769,9 @@ def run_planning(args: argparse.Namespace) -> dict[str, object]:
         top_k_knowledge=top_k,
         recommended_questions=recommended_question_payloads,
         target_skills=target_skills,
-        fallback_skill_ids=sorted(scorer.data.skill_to_questions),
+        fallback_skill_ids=topic_skill_ids or sorted(scorer.data.skill_to_questions),
+        topic_skill_ids=topic_skill_ids or None,
+        core_skill_ids=preferred_skill_ids if topic_skill_ids else None,
     )
     target_with_probabilities = {
         **target_payload,

@@ -65,14 +65,14 @@ def parse_targets(raw_targets: str | None, num_skills: int, config: dict[str, An
         if not 1 <= skill_id <= num_skills:
             raise ValueError(f"target skill_id must be in [1, {num_skills}], got {skill_id}.")
         if skill_id not in predictable_targets:
-            raise ValueError(f"target skill_id {skill_id} has no REKT question mapping.")
+            raise ValueError(f"target skill_id {skill_id} has no KT question mapping.")
         targets.append(skill_id)
     if not targets:
         raise ValueError("No valid targets were provided.")
     return targets
 
 
-def rekt_skill_arg(raw_targets: str | None, config: dict[str, Any], targets: list[int]) -> str:
+def kt_skill_arg(raw_targets: str | None, config: dict[str, Any], targets: list[int]) -> str:
     configured_targets = str(config.get("prediction", {}).get("default_targets", "all"))
     effective_targets = raw_targets or configured_targets
     if str(effective_targets).strip().lower() == "all":
@@ -123,7 +123,7 @@ def build_request_from_trace(
     config = load_runtime_config(config_path)
     num_skills = infer_num_skills(config)
     targets = parse_targets(raw_targets, num_skills, config)
-    cli_skill_arg = rekt_skill_arg(raw_targets, config, targets)
+    cli_skill_arg = kt_skill_arg(raw_targets, config, targets)
     if request_id is None:
         request_id = f"{source_mode}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -132,7 +132,7 @@ def build_request_from_trace(
         "task": "predict_correctness",
         "student_trace": student_trace,
         "targets": [{"skill_id": target} for target in targets],
-        "rekt_skill_arg": cli_skill_arg,
+        "kt_skill_arg": cli_skill_arg,
         "device": device or str(config.get("runtime", {}).get("device", "cuda:0")),
         "analysis_enabled": bool(config.get("analysis", {}).get("enabled", True)),
         "analysis_context": _build_analysis_context(
@@ -168,7 +168,7 @@ def build_request_from_student_id(
     ]
     num_skills = infer_num_skills(config)
     targets = parse_targets(raw_targets, num_skills, config)
-    cli_skill_arg = rekt_skill_arg(raw_targets, config, targets)
+    cli_skill_arg = kt_skill_arg(raw_targets, config, targets)
     if request_id is None:
         request_id = f"student-{student_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -177,7 +177,7 @@ def build_request_from_student_id(
         "task": "predict_correctness",
         "student_trace": student_trace,
         "targets": [{"skill_id": target} for target in targets],
-        "rekt_skill_arg": cli_skill_arg,
+        "kt_skill_arg": cli_skill_arg,
         "device": device or str(config.get("runtime", {}).get("device", "cuda:0")),
         "analysis_enabled": bool(config.get("analysis", {}).get("enabled", True)),
         "analysis_context": _build_analysis_context(

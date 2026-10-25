@@ -8,7 +8,10 @@
 
 - 搜索核心仍然是题目级序列搜索。
 - 知识点用于构造候选池、指导变异，以及汇总输出知识点路径。
-- 生产后端默认使用 `kt-runtime-skill` 的 REKT 模型和数据。
+- 生产后端默认使用 `kt-runtime-skill` 的 KT 模型和数据。
+- SmartTutor 对话内先将用户问题及安全引导拆解为语义查询，在真实课程目录中选点并复核；
+  规划通过 `--topic-skill-ids` 限定本轮主题，核心目标优先，候选、练习与五阶段不能越界。
+  相关知识点不足五个时返回不可用，不用其他学科补齐。独立 CLI 未传该参数时保留原行为。
 
 ## 当前输出策略
 
@@ -35,7 +38,7 @@
 
 ```bash
 cd services/lpp-skill
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 \
 conda run -n kt python scripts/run_lpp.py --student-id 43
 ```
 

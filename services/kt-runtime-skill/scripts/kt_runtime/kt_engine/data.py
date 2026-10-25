@@ -1,4 +1,4 @@
-"""REKT 数据加载工具。"""
+"""KT 数据加载工具。"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +16,7 @@ def parse_skill_ids(value) -> List[int]:
 
 
 @dataclass(frozen=True)
-class ReKTDataBundle:
+class KTDataBundle:
     """推理和训练都会用到的数据结构集合。"""
 
     qst_num: int
@@ -29,8 +29,8 @@ class ReKTDataBundle:
     recordings_by_user: Dict[int, List[List[int]]]
 
 
-def load_rekt_data(data_dir: Path | str) -> ReKTDataBundle:
-    """从 REKT 数据目录读取题目、知识点和学生行为序列。"""
+def load_kt_data(data_dir: Path | str) -> KTDataBundle:
+    """从 KT 数据目录读取题目、知识点和学生行为序列。"""
     data_dir = Path(data_dir)
     question_to_skills: Dict[int, List[int]] = {}
     skill_to_questions: Dict[int, List[int]] = {}
@@ -68,7 +68,7 @@ def load_rekt_data(data_dir: Path | str) -> ReKTDataBundle:
                 for qid, resp in zip(item["question_id"], item["is_corrects"])
             ]
 
-    return ReKTDataBundle(
+    return KTDataBundle(
         qst_num=qst_num,
         usr_num=len(recordings_by_user),
         skl_num=skl_num,

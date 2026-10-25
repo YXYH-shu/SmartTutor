@@ -1,20 +1,20 @@
 # KT Runtime Skill 配置文件
-# 当前版本只通过 REKT CLI、REKT JSON 数据集和 REKT checkpoint 推理。
+# 当前版本只通过 KT CLI、KT JSON 数据集和 KT checkpoint 推理。
 
 [model]
-# REKT JSON 数据集仍是 kp 粒度输出，skill_id 即 kp_id。
+# KT JSON 数据集仍是 kp 粒度输出，skill_id 即 kp_id。
 num_skills = 348
 
 [runtime]
-backend = "rekt_cli"
+backend = "kt_cli"
 
-# 默认优先使用 GPU；如果 CUDA 不可用，REKT 推理自动回退到 CPU。
+# 默认优先使用 GPU；如果 CUDA 不可用，KT 推理自动回退到 CPU。
 device = "cuda:0"
 
-[rekt]
-cli_path = "scripts/kt_runtime/rekt_engine/cli.py"
-data_dir = "assets/rekt/dataset"
-checkpoint_path = "assets/rekt/checkpoint/rekt.pt"
+[kt]
+cli_path = "scripts/kt_runtime/kt_engine/cli.py"
+data_dir = "assets/kt/dataset"
+checkpoint_path = "assets/kt/checkpoint/kt.pt"
 max_seq_len = 200
 hidden_dim = 128
 dropout = 0.4
@@ -38,7 +38,7 @@ selection = "recent"
 
 [prediction]
 # 默认目标。
-# all 表示预测全部有 REKT 题目映射的 kp；也可以在命令行中单独指定。
+# all 表示预测全部有 KT 题目映射的 kp；也可以在命令行中单独指定。
 default_targets = "all"
 
 [analysis]

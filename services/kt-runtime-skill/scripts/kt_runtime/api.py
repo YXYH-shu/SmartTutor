@@ -1,9 +1,9 @@
-from kt_runtime.rekt_cli_runtime import predict_via_rekt_cli
+from kt_runtime.kt_cli_runtime import predict_via_kt_cli
 from kt_runtime.request_factory import build_request_from_student_id
 
 
 def predict_from_dict(payload: dict):
-    return predict_via_rekt_cli(payload)
+    return predict_via_kt_cli(payload)
 
 
 def predict_from_student_id(

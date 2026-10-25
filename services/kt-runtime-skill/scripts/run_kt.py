@@ -11,7 +11,7 @@ if __package__ in (None, ""):
 
 from kt_runtime.config import DEFAULT_CONFIG_PATH
 from kt_runtime.contracts import KTPredictResponse
-from kt_runtime.rekt_cli_runtime import predict_via_rekt_cli
+from kt_runtime.kt_cli_runtime import predict_via_kt_cli
 from kt_runtime.request_factory import (
     build_request_from_student_id,
     build_request_from_trace,
@@ -31,7 +31,7 @@ def parse_args():
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--request-file", help="完整 KT 请求 JSON 文件路径。")
     source_group.add_argument("--request-json", help="完整 KT 请求 JSON 字符串。")
-    source_group.add_argument("--student-id", help="学生 ID。脚本会通过本地 REKT 数据集读取该学生的历史作答序列。")
+    source_group.add_argument("--student-id", help="学生 ID。脚本会通过本地 KT 数据集读取该学生的历史作答序列。")
     source_group.add_argument(
         "--trace-pairs",
         help="手工输入历史序列，格式如 27:1,13:0,8:1。当前 skill_id 表示 kp_id，不再是 topic_id。",
@@ -128,7 +128,7 @@ def main():
     args = parse_args()
     try:
         payload = load_payload(args)
-        response = predict_via_rekt_cli(payload)
+        response = predict_via_kt_cli(payload)
     except Exception as exc:
         request_id = "unknown-request"
         task = "unknown-task"

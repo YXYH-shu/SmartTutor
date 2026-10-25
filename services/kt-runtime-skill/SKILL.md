@@ -7,7 +7,7 @@ description: Use when 用户明确要求对某个学生 ID 做 KT 学情分析�
 
 ## Purpose
 
-Use this skill to run the local REKT knowledge tracing runtime for a student ID and produce a Chinese learning diagnosis report. The report has two parts:
+Use this skill to run the local KT knowledge tracing runtime for a student ID and produce a Chinese learning diagnosis report. The report has two parts:
 
 - Deterministic KT data from the runtime: knowledge points, mastery percentages, mastery statuses, and selected knowledge point details.
 - Agent-written natural language analysis: only the marked block in `## 3. 学情分析结果`, written from runtime materials and the bundled style template.
@@ -51,18 +51,18 @@ conda run -n kt python scripts/run_kt.py \
   --history-context "学生最近在学电路，刚询问了闭合回路为什么才能让小灯泡亮起来。"
 ```
 
-Do not ask the user for answer sequences. Student-ID mode derives history from the local REKT dataset.
+Do not ask the user for answer sequences. Student-ID mode derives history from the local KT dataset.
 
 ## Runtime Facts
 
 - Stable Agent-facing entrypoint: `scripts/run_kt.py`
 - Default runtime config: `config/runtime.toml`
-- Runtime backend: bundled REKT CLI at `scripts/kt_runtime/rekt_engine/cli.py`
-- Dataset: bundled REKT data at `assets/rekt/dataset`
-- Checkpoint: bundled REKT checkpoint at `assets/rekt/checkpoint/rekt.pt`
-- Default device: `cuda:0`; if CUDA is unavailable, bundled REKT inference automatically falls back to CPU.
-- `skill_id` in runtime data means REKT `kp_id`.
-- Default prediction target is all REKT-predictable knowledge points. Catalog-only knowledge points without question mappings are not prediction targets.
+- Runtime backend: bundled KT CLI at `scripts/kt_runtime/kt_engine/cli.py`
+- Dataset: bundled KT data at `assets/kt/dataset`
+- Checkpoint: bundled KT checkpoint at `assets/kt/checkpoint/kt.pt`
+- Default device: `cuda:0`; if CUDA is unavailable, bundled KT inference automatically falls back to CPU.
+- `skill_id` in runtime data means KT `kp_id`.
+- Default prediction target is all KT-predictable knowledge points. Catalog-only knowledge points without question mappings are not prediction targets.
 
 If the command returns `status: error`, do not fabricate a report. Explain the runtime error briefly.
 
@@ -141,9 +141,9 @@ The mastery table in `## 3. 学情分析结果` uses only:
 
 Rules:
 
-- Knowledge point names should come from `assets/rekt/dataset/knowledges.json` by matching `id` to runtime `skill_id`; fall back to `exercise_info.json.kp_desc` only when catalog names are unavailable.
-- `预测掌握度` must come from the REKT CLI `掌握度` field.
-- `掌握状态` must come from the REKT CLI `掌握情况` field.
+- Knowledge point names should come from `assets/kt/dataset/knowledges.json` by matching `id` to runtime `skill_id`; fall back to `exercise_info.json.kp_desc` only when catalog names are unavailable.
+- `预测掌握度` must come from the KT CLI `掌握度` field.
+- `掌握状态` must come from the KT CLI `掌握情况` field.
 - `判断依据` should be `-` when no dedicated evidence field is available.
 - Do not add an `优先级` column.
 
@@ -153,16 +153,16 @@ In user-facing reports, do not mention:
 
 - internal selected row counts or phrases such as “为你选出 N 条”
 - n-gram similarity, selection scores, matched terms, backend parameters, or model-field provenance
-- implementation details of the REKT CLI, dataset plumbing, or report renderer
+- implementation details of the KT CLI, dataset plumbing, or report renderer
 
 ## Development Notes
 
 These notes apply only when the user explicitly asks to inspect, modify, debug, or integrate the runtime.
 
 - Keep `scripts/run_kt.py` as the stable Agent-facing command.
-- Keep REKT inference self-contained inside this skill. Do not reintroduce dependencies on an external REKT project directory.
-- The bundled REKT inference code lives in `scripts/kt_runtime/rekt_engine/`.
-- Bundled REKT assets live in `assets/rekt/`.
+- Keep KT inference self-contained inside this skill. Do not reintroduce dependencies on an external KT project directory.
+- The bundled KT inference code lives in `scripts/kt_runtime/kt_engine/`.
+- Bundled KT assets live in `assets/kt/`.
 - Report generation lives in `scripts/kt_runtime/analysis_report.py`.
 - The style template asset is `assets/report-templates/learning-analysis-style-template.md`.
 - Run focused tests after report changes:

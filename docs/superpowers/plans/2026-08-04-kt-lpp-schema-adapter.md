@@ -6,14 +6,14 @@
 
 **Architecture:** 保留现有 LangGraph、安全和情感固定节点。`cognitive_diagnosis` 内部通过 KT 适配器获得真实掌握度，`learning_path` 内部通过 LPP 适配器获得固定 P1～P5；两个 Agent 均在 LLM 返回后用 Runtime 事实覆盖不可改写字段。学生编号按显式输入、用户画像映射、配置默认值 `43` 的优先级解析。
 
-**Tech Stack:** Python 3.11、FastAPI、LangGraph、Pydantic Settings、PyYAML、pytest/pytest-asyncio、React/TypeScript、REKT/PyTorch、LPP Runtime。
+**Tech Stack:** Python 3.11、FastAPI、LangGraph、Pydantic Settings、PyYAML、pytest/pytest-asyncio、React/TypeScript、KT/PyTorch、LPP Runtime。
 
 ## Global Constraints
 
 - 不修改 `backend/config/workflows.yaml`。
 - 不修改安全策略与情感分析的图执行顺序。
 - KT 掌握度和 LPP P1～P5 只能来自 Runtime，LLM 不得伪造或改写。
-- 当前阶段默认 REKT/LPP 学生编号为字符串 `"43"`。
+- 当前阶段默认 KT/LPP 学生编号为字符串 `"43"`。
 - 后端 canonical 路径字段为 `learning_path`，同时返回前端兼容别名 `stages`。
 - 未经用户明确允许，不执行 `git commit` 或远程推送。
 

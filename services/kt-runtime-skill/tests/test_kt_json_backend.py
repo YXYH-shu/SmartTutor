@@ -27,8 +27,8 @@ def _write_jsonl(path, rows):
 
 def _config(data_dir):
     return {
-        "runtime": {"backend": "rekt_json", "device": "cpu"},
-        "rekt": {"data_dir": data_dir, "checkpoint_path": "/tmp/rekt.pt"},
+        "runtime": {"backend": "kt_json", "device": "cpu"},
+        "kt": {"data_dir": data_dir, "checkpoint_path": "/tmp/kt.pt"},
         "model": {},
         "history": {"max_interactions": 2, "selection": "recent"},
         "analysis": {"recent_window": 2},
@@ -36,7 +36,7 @@ def _config(data_dir):
     }
 
 
-class ReKTJsonBackendTest(unittest.TestCase):
+class KTJsonBackendTest(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.data_dir = self.tmpdir.name
@@ -94,12 +94,12 @@ class ReKTJsonBackendTest(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def test_fetch_student_history_reads_rekt_json_without_network_api(self):
+    def test_fetch_student_history_reads_kt_json_without_network_api(self):
         with patch("urllib.request.urlopen", side_effect=AssertionError("API should not be called")):
             bundle = fetch_student_history(_config(self.data_dir), "1")
 
         self.assertEqual(bundle["student_id"], "1")
-        self.assertEqual(bundle["student_name"], "ReKTStudent000001")
+        self.assertEqual(bundle["student_name"], "KTStudent000001")
         self.assertEqual(
             bundle["student_trace"],
             [
@@ -111,10 +111,10 @@ class ReKTJsonBackendTest(unittest.TestCase):
         self.assertEqual(bundle["summary"]["history_length"], 2)
         self.assertEqual(bundle["summary"]["correct_count"], 1)
 
-    def test_fetch_student_history_caps_rekt_history_to_max_seq_len(self):
+    def test_fetch_student_history_caps_kt_history_to_max_seq_len(self):
         config = _config(self.data_dir)
         config["history"] = {"max_interactions": 300, "selection": "recent"}
-        config["rekt"]["max_seq_len"] = 2
+        config["kt"]["max_seq_len"] = 2
 
         bundle = fetch_student_history(config, "1")
 
@@ -126,7 +126,7 @@ class ReKTJsonBackendTest(unittest.TestCase):
             ],
         )
 
-    def test_load_kp_catalog_reads_rekt_exercise_info(self):
+    def test_load_kp_catalog_reads_kt_exercise_info(self):
         catalog = load_kp_catalog_from_config(_config(self.data_dir))
 
         self.assertEqual(sorted(catalog), [1, 2])
@@ -139,7 +139,7 @@ class ReKTJsonBackendTest(unittest.TestCase):
         self.assertEqual(catalog[1]["question_count"], 1)
         self.assertEqual(catalog[1]["hit_count"], 2)
 
-    def test_infer_num_skills_uses_rekt_json_max_kp_id(self):
+    def test_infer_num_skills_uses_kt_json_max_kp_id(self):
         self.assertEqual(infer_num_skills(_config(self.data_dir)), 3)
 
 

@@ -416,8 +416,8 @@ def _selected_knowledge_points(selected: list[dict[str, Any]]) -> list[dict[str,
 def _model_label(model_info: dict[str, Any]) -> str:
     model_type = str(model_info.get("model_type") or "").strip()
     source_project = str(model_info.get("source_project") or "").strip()
-    if source_project == "rekt" or model_type.startswith("rekt"):
-        return "REKT 题目序列模型"
+    if source_project == "kt" or model_type.startswith("kt"):
+        return "KT 题目序列模型"
     if model_type:
         return model_type
     return "KT 模型"

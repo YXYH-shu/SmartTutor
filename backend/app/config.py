@@ -97,7 +97,10 @@ class LPPSettings(BaseSettings):
 
     enabled: bool = True
     skill_path: str = "services/lpp-skill"
-    timeout_seconds: int = 600
+    # Shared planning budget; the stage deadline may shorten it.
+    timeout_seconds: int = Field(default=120, ge=1)
+    # Small, repeated KT inference batches run slower with large CPU thread pools.
+    cpu_threads: int = Field(default=1, ge=1)
     history_length: int = 10
     seed: int = 42
 

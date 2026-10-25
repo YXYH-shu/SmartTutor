@@ -1,21 +1,21 @@
-"""REKT 诊断命令行入口。"""
+"""KT 诊断命令行入口。"""
 
 import argparse
 import json
 
 try:
-    from .config import ReKTConfig
-    from .service import ReKTDiagnoser
+    from .config import KTConfig
+    from .service import KTDiagnoser
 except ImportError:
-    from config import ReKTConfig
-    from service import ReKTDiagnoser
+    from config import KTConfig
+    from service import KTDiagnoser
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="运行 REKT 学生知识追踪诊断")
+    parser = argparse.ArgumentParser(description="运行 KT 学生知识追踪诊断")
     parser.add_argument("--user_id", default=288, help="Student id in recordings.jsonl")
-    parser.add_argument("--data_dir", default=None, help="Directory containing ReKT jsonl data")
-    parser.add_argument("--checkpoint", default=None, help="Path to ReKT checkpoint")
+    parser.add_argument("--data_dir", default=None, help="Directory containing KT jsonl data")
+    parser.add_argument("--checkpoint", default=None, help="Path to KT checkpoint")
     parser.add_argument("--device", default=None, help="Torch device, e.g. cuda:0 or cpu")
     parser.add_argument("--history_limit", type=int, default=None, help="Number of recent interactions to use")
     parser.add_argument("--skill_id", default="local", help="Skill scope: all, local, one id, or comma-separated ids")
@@ -50,15 +50,15 @@ def print_diagnosis(result, skill_names: dict[int, str]) -> None:
 def main() -> None:
     args = build_parser().parse_args()
     # 命令行参数优先级高于环境变量，环境变量优先级高于默认配置。
-    config = ReKTConfig.from_env()
+    config = KTConfig.from_env()
     if args.data_dir:
-        config = ReKTConfig(**{**config.__dict__, "data_dir": args.data_dir})
+        config = KTConfig(**{**config.__dict__, "data_dir": args.data_dir})
     if args.checkpoint:
-        config = ReKTConfig(**{**config.__dict__, "checkpoint_path": args.checkpoint})
+        config = KTConfig(**{**config.__dict__, "checkpoint_path": args.checkpoint})
     if args.device:
-        config = ReKTConfig(**{**config.__dict__, "device": args.device})
+        config = KTConfig(**{**config.__dict__, "device": args.device})
 
-    diagnoser = ReKTDiagnoser(config)
+    diagnoser = KTDiagnoser(config)
     result = diagnoser.diagnose_user(args.user_id, history_limit=args.history_limit, skill_id=args.skill_id)
     print_diagnosis(result, diagnoser.data.skill_names)
 

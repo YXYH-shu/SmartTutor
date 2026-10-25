@@ -35,7 +35,7 @@ def _kt_state_for(student_focus: list[str] | None = None) -> dict[str, Any]:
             "mastery_percent": "30.0%",
             "mastery_rate": 0.3,
             "status": "weak",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         },
         {
             "skill_id": "kp2",
@@ -43,7 +43,7 @@ def _kt_state_for(student_focus: list[str] | None = None) -> dict[str, Any]:
             "mastery_percent": "75.0%",
             "mastery_rate": 0.75,
             "status": "mastered",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         },
         {
             "skill_id": "kp3",
@@ -51,7 +51,7 @@ def _kt_state_for(student_focus: list[str] | None = None) -> dict[str, Any]:
             "mastery_percent": "55.0%",
             "mastery_rate": 0.55,
             "status": "developing",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         },
     ]
     return {
@@ -64,8 +64,8 @@ def _kt_state_for(student_focus: list[str] | None = None) -> dict[str, Any]:
                 "mastery_rates": {"kp1": 0.3, "kp2": 0.75, "kp3": 0.55},
                 "weak_points": [knowledge_states[0]],  # KT 输出 list[dict]
                 "diagnosis_summary": "代数薄弱,需补强",
-                "diagnosis_source": "kt_rekt",
-                "kt_model_info": {"model_name": "rekt", "dataset": "assist09"},
+                "diagnosis_source": "kt",
+                "kt_model_info": {"model_name": "kt", "dataset": "assist09"},
                 "kt_metrics": {"rmse": 0.42, "auc": 0.81},
             }
         },
@@ -192,8 +192,8 @@ class TestAggregateWithKtOutput:
             result, _state_template(), "turn-1"
         )
         ks = turn_data["kt_summary"]
-        assert ks["diagnosisSource"] == "kt_rekt"
-        assert ks["modelInfo"] == {"model_name": "rekt", "dataset": "assist09"}
+        assert ks["diagnosisSource"] == "kt"
+        assert ks["modelInfo"] == {"model_name": "kt", "dataset": "assist09"}
         assert ks["metrics"] == {"rmse": 0.42, "auc": 0.81}
 
 
