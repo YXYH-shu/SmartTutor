@@ -6,7 +6,7 @@ from collections import Counter
 from functools import lru_cache
 from typing import Any
 
-from kt_runtime.config import DEFAULT_REKT_DATA_DIR
+from kt_runtime.config import DEFAULT_KT_DATA_DIR
 
 
 KT_RUNTIME_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,16 +17,16 @@ SKILL_ROOT = os.path.dirname(SCRIPTS_DIR)
 def _backend(config: dict[str, Any]) -> str:
     runtime_cfg = config.get("runtime", {}) if isinstance(config, dict) else {}
     model_cfg = config.get("model", {}) if isinstance(config, dict) else {}
-    return str(runtime_cfg.get("backend") or model_cfg.get("backend") or "rekt_cli").strip().lower()
+    return str(runtime_cfg.get("backend") or model_cfg.get("backend") or "kt_cli").strip().lower()
 
 
-def _is_rekt_json_backend(config: dict[str, Any]) -> bool:
-    return _backend(config) in {"rekt_cli", "rekt_json", "rekt"}
+def _is_kt_json_backend(config: dict[str, Any]) -> bool:
+    return _backend(config) in {"kt_cli", "kt_json", "kt"}
 
 
-def _rekt_data_dir(config: dict[str, Any]) -> str:
-    rekt_cfg = config.get("rekt", {}) if isinstance(config, dict) else {}
-    data_dir = str(rekt_cfg.get("data_dir") or DEFAULT_REKT_DATA_DIR)
+def _kt_data_dir(config: dict[str, Any]) -> str:
+    kt_cfg = config.get("kt", {}) if isinstance(config, dict) else {}
+    data_dir = str(kt_cfg.get("data_dir") or DEFAULT_KT_DATA_DIR)
     if os.path.isabs(data_dir):
         return data_dir
     return os.path.join(SKILL_ROOT, data_dir)
@@ -105,27 +105,27 @@ def _history_limit(config: dict[str, Any], history_limit: int | None) -> int:
     return int(history_limit)
 
 
-def _rekt_history_limit(config: dict[str, Any], history_limit: int | None) -> int:
+def _kt_history_limit(config: dict[str, Any], history_limit: int | None) -> int:
     limit = _history_limit(config, history_limit)
-    rekt_cfg = config.get("rekt", {}) if isinstance(config, dict) else {}
-    max_seq_len = int(rekt_cfg.get("max_seq_len") or 200)
+    kt_cfg = config.get("kt", {}) if isinstance(config, dict) else {}
+    max_seq_len = int(kt_cfg.get("max_seq_len") or 200)
     return min(limit, max_seq_len)
 
 
-def _parse_rekt_skill_ids(value: Any) -> list[int]:
+def _parse_kt_skill_ids(value: Any) -> list[int]:
     if isinstance(value, list):
         return [int(skill_id) for skill_id in value]
     return [int(value)]
 
 
-def _student_id_from_rekt(value: str) -> int:
+def _student_id_from_kt(value: str) -> int:
     text = str(value).strip()
     if text.startswith("VSTU"):
         return int(text[4:])
     return int(text)
 
 
-def _load_rekt_knowledges(data_dir: str) -> dict[int, dict[str, Any]]:
+def _load_kt_knowledges(data_dir: str) -> dict[int, dict[str, Any]]:
     knowledge_path = os.path.join(data_dir, "knowledges.json")
     if not os.path.exists(knowledge_path):
         return {}
@@ -152,7 +152,7 @@ def _load_rekt_knowledges(data_dir: str) -> dict[int, dict[str, Any]]:
 
 
 @lru_cache(maxsize=4)
-def _load_rekt_json_data(data_dir: str) -> dict[str, Any]:
+def _load_kt_json_data(data_dir: str) -> dict[str, Any]:
     exercises: dict[int, dict[str, Any]] = {}
     catalog: dict[int, dict[str, Any]] = {}
     question_counts: Counter[int] = Counter()
@@ -166,7 +166,7 @@ def _load_rekt_json_data(data_dir: str) -> dict[str, Any]:
                 continue
             item = json.loads(line)
             question_id = int(item["question_id"])
-            skill_ids = _parse_rekt_skill_ids(item["kp_id"])
+            skill_ids = _parse_kt_skill_ids(item["kp_id"])
             primary_skill_id = int(skill_ids[0])
             exercises[question_id] = {
                 "question_id": question_id,
@@ -222,7 +222,7 @@ def _load_rekt_json_data(data_dir: str) -> dict[str, Any]:
         row["question_count"] = int(question_counts[skill_id])
         row["hit_count"] = int(hit_counts[skill_id])
 
-    knowledge_rows = _load_rekt_knowledges(data_dir)
+    knowledge_rows = _load_kt_knowledges(data_dir)
     for skill_id, meta in knowledge_rows.items():
         if skill_id not in catalog:
             catalog[skill_id] = {
@@ -261,18 +261,18 @@ def _load_rekt_json_data(data_dir: str) -> dict[str, Any]:
     }
 
 
-def _fetch_rekt_json_student_history(
+def _fetch_kt_json_student_history(
     config: dict[str, Any],
     student_id: str,
     history_limit: int | None = None,
 ) -> dict[str, Any]:
-    data = _load_rekt_json_data(_rekt_data_dir(config))
-    user_id = _student_id_from_rekt(student_id)
+    data = _load_kt_json_data(_kt_data_dir(config))
+    user_id = _student_id_from_kt(student_id)
     if user_id not in data["student_records"]:
-        raise KeyError(f"student_id {student_id} not found in ReKT JSON dataset")
+        raise KeyError(f"student_id {student_id} not found in KT JSON dataset")
 
     all_records = data["student_records"][user_id]
-    limit = _rekt_history_limit(config, history_limit)
+    limit = _kt_history_limit(config, history_limit)
     start_index = max(0, len(all_records) - limit)
     records = all_records[start_index:]
     trace = [
@@ -314,9 +314,9 @@ def _fetch_rekt_json_student_history(
     recent_window = max(1, int(config.get("analysis", {}).get("recent_window", 20)))
     summary = summarize_trace(trace, recent_window, data["catalog"])
     return {
-        "source_mode": "rekt_json",
+        "source_mode": "kt_json",
         "student_id": str(user_id),
-        "student_name": f"ReKTStudent{user_id:06d}",
+        "student_name": f"KTStudent{user_id:06d}",
         "grade_level": None,
         "student_trace": trace,
         "recent_interactions": interactions[-recent_window:],
@@ -325,9 +325,9 @@ def _fetch_rekt_json_student_history(
 
 
 def load_kp_catalog_from_config(config: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    if not _is_rekt_json_backend(config):
-        raise ValueError("Only REKT local dataset backend is supported.")
-    catalog = _load_rekt_json_data(_rekt_data_dir(config))["catalog"]
+    if not _is_kt_json_backend(config):
+        raise ValueError("Only KT local dataset backend is supported.")
+    catalog = _load_kt_json_data(_kt_data_dir(config))["catalog"]
     return {
         int(skill_id): dict(row)
         for skill_id, row in catalog.items()
@@ -342,12 +342,12 @@ def load_kp_catalog(_ignored_records_path: str | None = None) -> dict[int, dict[
 
 
 def infer_num_skills(config: dict[str, Any]) -> int:
-    if not _is_rekt_json_backend(config):
-        raise ValueError("Only REKT local dataset backend is supported.")
-    num_skills = int(_load_rekt_json_data(_rekt_data_dir(config))["max_skill_id"])
+    if not _is_kt_json_backend(config):
+        raise ValueError("Only KT local dataset backend is supported.")
+    num_skills = int(_load_kt_json_data(_kt_data_dir(config))["max_skill_id"])
     if num_skills > 0:
         return num_skills
-    raise RuntimeError("REKT JSON exercise_info 未提供有效 kp_id。")
+    raise RuntimeError("KT JSON exercise_info 未提供有效 kp_id。")
 
 
 def summarize_trace(
@@ -391,6 +391,6 @@ def fetch_student_history(
     student_id: str,
     history_limit: int | None = None,
 ) -> dict[str, Any]:
-    if not _is_rekt_json_backend(config):
-        raise ValueError("Only REKT local dataset backend is supported.")
-    return _fetch_rekt_json_student_history(config, student_id, history_limit)
+    if not _is_kt_json_backend(config):
+        raise ValueError("Only KT local dataset backend is supported.")
+    return _fetch_kt_json_student_history(config, student_id, history_limit)

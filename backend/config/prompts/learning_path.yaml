@@ -55,6 +55,19 @@ prompt_template: |
   ### 学习目标
   {{goal | default('未指定')}}
 
+  ### 本轮安全学习主题与扩展检索
+  {{topic_context | default({}) | tojson}}
+  {{retrieval_queries | default({}) | tojson}}
+
+  ### 知识点与本轮主题的明确联系
+  {{relevance_matches | default([]) | tojson}}
+
+  依据实际Runtime目标题和P1至P5知识点说明主题联系。只解释当前学习任务的核心、
+  必需前置及有明确依据的安全伦理维度。不得把历史画像或无关学科当成当前主题；
+  不得以“方向、关系、选定”等泛词解释关联，也不得将路线转化为危险操作指导。
+  问题中的假设不等于事实；通用课程知识和KT预测不能证明特定情境的专门科学结论。
+  仅说明有目录依据的学习关联，未证实的前提作为待探究问题。
+
   ### 可用时间（分钟）
   {{time_available | default('未指定')}}
 

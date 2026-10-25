@@ -1,7 +1,7 @@
 """学生历史数据的抽象接口（端口）。
 
 搜索主流程通过这个接口读取"某个学生的历史做题序列"，不关心底层数据到底存成
-REKT 的 JSON Lines 格式，还是 DSMOEA 的 train_test/*.txt 格式。
+KT 的 JSON Lines 格式，还是 DSMOEA 的 train_test/*.txt 格式。
 """
 
 from __future__ import annotations

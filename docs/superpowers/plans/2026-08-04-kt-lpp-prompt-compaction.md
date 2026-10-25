@@ -6,7 +6,7 @@
 
 **Architecture:** Runtime 继续完整运行并保留完整结果。新增纯投影函数分别生成认知诊断和学习路径 Prompt 上下文；Agent 只把投影结果交给 LLM，随后继续用完整 Runtime 事实执行 `finalize_output()` 覆盖。
 
-**Tech Stack:** Python 3.11、pytest、Jinja2、PyYAML、REKT、LPP Runtime。
+**Tech Stack:** Python 3.11、pytest、Jinja2、PyYAML、KT、LPP Runtime。
 
 ## Global Constraints
 

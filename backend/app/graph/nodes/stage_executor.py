@@ -17,6 +17,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
+from app.config import settings
 from app.graph.decision_engine import DecisionEngine
 from app.graph.state import TutorState
 from app.services.agents import get_agent
@@ -26,18 +27,17 @@ logger = logging.getLogger(__name__)
 # 全局阶段总预算（秒）。覆盖所有 agent 串行执行的最大时长。
 # 通过 SMART_TUTOR_STAGE__TOTAL_TIMEOUT_SECONDS 实时覆盖。
 _STAGE_TIMEOUT_SECONDS = float(
-    __import__("app.config", fromlist=["settings"]).settings.stage.total_timeout_seconds
+    settings.stage.total_timeout_seconds
 )
 # 给 knowledge_responder 至少保留多少秒（即使前面 agent 把总预算花光）。
 _KNOWLEDGE_RESERVE_SECONDS = float(
-    __import__("app.config", fromlist=["settings"]).settings.stage.knowledge_reserve_seconds
+    settings.stage.knowledge_reserve_seconds
 )
 # 单 agent 超时（秒）。0 表示用 _STAGE_TIMEOUT_SECONDS 的剩余时间。
 # 实测智谱 GLM-5 coding 端点单次调用 13-30s，原来的 12s 太紧。
 _AGENT_TIMEOUT_SECONDS = {
     "cognitive_diagnosis": 90.0,
     "resource_recommender": 30.0,
-    "learning_path": 60.0,
     "study_buddy": 30.0,
     "knowledge_responder": 60.0,
     "content_polisher": 30.0,
@@ -275,7 +275,11 @@ async def stage_executor(state: TutorState) -> dict[str, Any]:
             input_data.setdefault("raw_response", extracted)
 
         remaining = stage_deadline - asyncio.get_running_loop().time()
-        configured_timeout = _AGENT_TIMEOUT_SECONDS.get(name, 30.0)
+        configured_timeout = (
+            settings.lpp.timeout_seconds
+            if name == "learning_path"
+            else _AGENT_TIMEOUT_SECONDS.get(name, 30.0)
+        )
         if has_knowledge_responder and not knowledge_completed and name != "knowledge_responder":
             # Non-response agents may not consume the time reserved for the
             # user-facing knowledge response.

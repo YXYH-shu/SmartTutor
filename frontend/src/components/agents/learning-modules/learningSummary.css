@@ -1,0 +1,17 @@
+/* Scoped to the two learning module entry cards; other agents keep their layout. */
+.learning-summary-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.learning-summary-card { display: flex; flex-direction: column; flex: 0 0 auto; gap: 9px; width: 100%; min-width: 0; padding: 12px; text-align: left; border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-border-subtle)); border-radius: 12px; color: var(--color-text-primary); background: linear-gradient(115deg,var(--color-accent-soft),transparent 80%),var(--color-bg-elevated); transition: border-color 150ms; }
+.learning-summary-card:hover { border-color: var(--color-accent); }
+.learning-summary-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -3px; }
+.learning-summary-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.learning-summary-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; height: 30px; width: 30px; border-radius: 9px; background: var(--color-accent-soft); color: var(--color-accent); }
+.learning-summary-heading h3 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 16px; line-height: 1.5; font-weight: 600; }
+.learning-summary-badge { flex: 0 0 auto; border-radius: 5px; padding: 2px 6px; font-size: 10px; line-height: 1.5; color: var(--color-accent); background: var(--color-accent-soft); }
+.learning-summary-metrics { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; margin: 0; }
+.learning-summary-metrics > div { min-width: 0; }
+.learning-summary-metrics dt { color: var(--color-text-secondary); font-size: 11px; line-height: 1.6; }
+.learning-summary-metrics dd { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; margin: 2px 0 0; font-size: 18px; line-height: 1.4; font-weight: 500; }
+.learning-summary-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--color-border-subtle); padding-top: 7px; font-size: 11px; line-height: 1.5; }
+.learning-summary-footer > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary); }
+.learning-summary-footer > span:last-child { display: inline-flex; flex-shrink: 0; align-items: center; gap: 3px; color: var(--color-accent); }
+@media (prefers-reduced-motion: reduce) { .learning-summary-card { transition: none; } }

@@ -4,7 +4,7 @@
 
 **Goal:** Restrict every new SmartTutor KT diagnosis and its downstream state to the original skill's 18 context-relevant knowledge points.
 
-**Architecture:** Enable the KT skill's analysis report so it yields the authoritative `selected_knowledge_points`. Normalize REKT predictions only for those selected IDs at the KT integration boundary, then replace (rather than merge) a user's persisted knowledge projection.
+**Architecture:** Enable the KT skill's analysis report so it yields the authoritative `selected_knowledge_points`. Normalize KT predictions only for those selected IDs at the KT integration boundary, then replace (rather than merge) a user's persisted knowledge projection.
 
 **Tech Stack:** Python 3.12, FastAPI, SQLAlchemy async ORM, pytest, local `kt-runtime-skill`.
 
@@ -44,7 +44,7 @@ def test_kt_normalization_keeps_only_skill_selected_top_18():
     assert {item["skill_id"] for item in result["weak_points"]} <= {str(i) for i in selected_ids}
 ```
 
-This catches removal of the source filter or accidental fallback to all REKT predictions.
+This catches removal of the source filter or accidental fallback to all KT predictions.
 
 - [ ] **Step 2: Run test to verify it fails**
 

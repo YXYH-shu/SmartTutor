@@ -17,6 +17,7 @@ import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
 import { ResourceRecommendationFlow } from './ResourceRecommendationFlow';
 import { StudyBuddyFlow } from './StudyBuddyFlow';
 import { ContentCorrectorFlow, SafetyMonitorFlow } from './trace43';
+import { LearningModuleDialog } from './learning-modules/LearningModuleDialog';
 import type { ResourceRecommendationOutput, StudyBuddyOutput } from '@/types';
 
 export function AgentDetailDrawer() {
@@ -28,6 +29,9 @@ export function AgentDetailDrawer() {
   const currentTurn = useChatStore((s) => s.currentTurn);
 
   if (!selectedDetailAgent) return null;
+  if (selectedDetailAgent === 'cognitive_diagnosis' || selectedDetailAgent === 'learning_path') {
+    return <LearningModuleDialog name={selectedDetailAgent} onClose={() => setSelectedDetailAgent(null)} />;
+  }
   if (selectedDetailAgent === 'resource_recommender') {
     const liveOutput = parseAgentContent(agentTrace.resource_recommender?.content);
     const currentMessage = [...messages]

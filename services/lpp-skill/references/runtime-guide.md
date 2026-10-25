@@ -4,12 +4,12 @@
 
 使用 conda 环境 `kt`。不要用 `base` 环境或系统 `python3` 直接运行。
 
-默认使用 REKT 后端和 CPU。沙盒没有可用 GPU，因此每次运行都必须设置
-`REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1`：
+默认使用 KT 后端和 CPU。沙盒没有可用 GPU，因此每次运行都必须设置
+`KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1`：
 
 ```bash
 cd services/lpp-skill
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 \
   conda run -n kt python scripts/run_lpp.py \
   --student-id 43 \
   --target-question-id 774
@@ -18,7 +18,7 @@ REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
 不传可选的题目 ID 时，默认从该学生第 11 道题开始滑窗：
 
 ```bash
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 \
 conda run -n kt python scripts/run_lpp.py \
   --student-id 43
 ```
@@ -26,7 +26,7 @@ conda run -n kt python scripts/run_lpp.py \
 固定随机种子并调整搜索参数：
 
 ```bash
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 \
 conda run -n kt python scripts/run_lpp.py \
   --student-id 43 \
   --target-question-id 774 \
@@ -40,6 +40,13 @@ conda run -n kt python scripts/run_lpp.py \
 ```
 
 ## 参数口径
+
+SmartTutor 对话内规划会启用主题约束模式：`--topic-skill-ids` 接收本轮语义检索确认的
+有序知识点 ID，所有目标题、候选练习、邻接知识和五阶段结果都限定在该集合内。
+此模式下 `--preferred-skill-ids` 由本轮核心知识点组成，核心内按真实学情排序；
+无对应历史题时选用真实题库目标，不补造学生作答。明确目标或核心目标不会因预测
+掌握度较高而漂移到其他主题点。相关知识点或题目不足时明确失败，不跨主题补齐。
+不传 `--topic-skill-ids` 时保留下面的历史滑窗行为。
 
 - `--student-id`：学生标识。
 - `--target-question-id`：从学生做题序列末尾向前定位该题最后一次出现的位置，并以此
@@ -65,7 +72,7 @@ stdout 必须是单个 JSON 对象：
 
 ## 开发边界
 
-- 生产后端仅使用仓库内 `kt-runtime-skill` 提供的 REKT 模型与数据。
+- 生产后端仅使用仓库内 `kt-runtime-skill` 提供的 KT 模型与数据。
 - 新增知识追踪后端时实现 `KTScorer`，不要复制或改写搜索算法。
 - 不要为教师端格式需求修改 `scripts/run_lpp.py`、模型适配器或搜索实现。
 - 不要修改 `kt-runtime-skill` 或 `LPP/DSMOEA` 来临时兼容本 Skill。
@@ -77,7 +84,7 @@ stdout 必须是单个 JSON 对象：
 
 ```bash
 conda run -n kt pytest tests/test_target_selection.py -q
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 \
 conda run -n kt python scripts/run_lpp.py --student-id 43 --seed 42
 ```
 

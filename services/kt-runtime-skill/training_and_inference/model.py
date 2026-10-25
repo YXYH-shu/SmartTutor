@@ -32,9 +32,9 @@ class DKT(nn.Module):
         y = torch.sigmoid(y)
         return y
 
-class ReKT(nn.Module):
+class KT(nn.Module):
     def __init__(self, qst_num, skl_num, max_seq_len = 400, d = 128, dropout = 0.4):
-        super(ReKT, self).__init__()
+        super(KT, self).__init__()
 
         self.pro_max = qst_num
         self.skill_max = skl_num

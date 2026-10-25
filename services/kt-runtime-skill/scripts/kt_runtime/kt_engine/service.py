@@ -1,4 +1,4 @@
-"""将 REKT 封装为 ITS 工具模型服务。"""
+"""将 KT 封装为 ITS 工具模型服务。"""
 
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -7,25 +7,25 @@ import warnings
 import torch
 
 try:
-    from .config import ReKTConfig
-    from .data import ReKTDataBundle, load_rekt_data
-    from .model import ReKT
+    from .config import KTConfig
+    from .data import KTDataBundle, load_kt_data
+    from .model import KT
     from .schemas import DiagnosisResult, SkillMastery, StudentInteraction
 except ImportError:
-    from config import ReKTConfig
-    from data import ReKTDataBundle, load_rekt_data
-    from model import ReKT
+    from config import KTConfig
+    from data import KTDataBundle, load_kt_data
+    from model import KT
     from schemas import DiagnosisResult, SkillMastery, StudentInteraction
 
 
-class ReKTDiagnoser:
-    """加载一次 REKT，并对外提供结构化学生诊断方法。"""
+class KTDiagnoser:
+    """加载一次 KT，并对外提供结构化学生诊断方法。"""
 
-    def __init__(self, config: Optional[ReKTConfig] = None) -> None:
+    def __init__(self, config: Optional[KTConfig] = None) -> None:
         # 服务对象持有数据和模型，避免每次工具调用都重复加载权重。
-        self.config = config or ReKTConfig.from_env()
+        self.config = config or KTConfig.from_env()
         self.device = self._resolve_device(self.config.device, self.config.allow_cpu_fallback)
-        self.data = load_rekt_data(self.config.data_dir)
+        self.data = load_kt_data(self.config.data_dir)
         self.model = self._load_model(self.data, self.config.checkpoint_path)
 
     @staticmethod
@@ -39,9 +39,9 @@ class ReKTDiagnoser:
             return torch.device("cpu")
         return requested
 
-    def _load_model(self, data: ReKTDataBundle, checkpoint_path: Path) -> ReKT:
-        """实例化 REKT，并兼容 raw state_dict 与训练脚本保存的 checkpoint dict。"""
-        model = ReKT(
+    def _load_model(self, data: KTDataBundle, checkpoint_path: Path) -> KT:
+        """实例化 KT，并兼容 raw state_dict 与训练脚本保存的 checkpoint dict。"""
+        model = KT(
             qst_num=data.qst_num,
             skl_num=data.skl_num,
             max_seq_len=self.config.max_seq_len,
@@ -71,7 +71,7 @@ class ReKTDiagnoser:
         uid = int(user_id)
         limit = history_limit or self.config.history_limit
         if uid not in self.data.recordings_by_user:
-            raise KeyError(f"user_id {uid} not found in ReKT recordings")
+            raise KeyError(f"user_id {uid} not found in KT recordings")
 
         # 默认使用前 history_limit 条交互，保持 raw 原型的“前 30 条记录”设定。
         history = self.data.recordings_by_user[uid][:limit]
@@ -146,7 +146,7 @@ class ReKTDiagnoser:
             expanded_history = history_tensor.repeat(query_rows.shape[0], 1, 1)
             seqs = torch.cat((expanded_history, query_rows.unsqueeze(1)), dim=1)
 
-            # REKT 输入为错位序列：cur_* 是历史位置，nxt_* 是下一时刻位置。
+            # KT 输入为错位序列：cur_* 是历史位置，nxt_* 是下一时刻位置。
             cur_qst = seqs[:, :-1, 0]
             nxt_qst = seqs[:, 1:, 0]
             nxt_rst = seqs[:, 1:, 1]

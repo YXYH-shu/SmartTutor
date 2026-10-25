@@ -31,6 +31,19 @@ prompt_template: |
   ## KT Runtime 摘要（只读事实）
   {{ kt_context | default({}) | tojson }}
 
+  ## 本轮安全学习主题与扩展查询
+  {{ topic_context | default({}) | tojson }}
+  {{ retrieval_queries | default({}) | tojson }}
+
+  ## 知识点与主题的关联依据
+  {{ relevance_matches | default([]) | tojson }}
+
+  围绕选定学习方向解释掌握情况；只将确有联系的电学、生物、安全或伦理内容作为
+  核心、前置或伴随学习维度。不要把同义泛词当成跨学科联系，不复述危险操作原句，
+  不提供危险方法、参数或伤害优化建议。旧画像不代表本轮主题；检索无覆盖时不能编造。
+  学习问题和选定方向中的假设不是已证实事实。KT只提供学情预测，目录只提供课程知识；
+  不据此断言特定物种或具体情境的专门科学结论。对未有依据的前提保持待探究。
+
   ## 返回格式
   {
     "topic_analysis": "一句话主题分析",
@@ -49,7 +62,7 @@ prompt_template: |
     "diagnosis_summary": "不超过三句话的诊断总结",
     "recommended_actions": ["建议一"],
     "knowledge_graph": {"nodes": [], "edges": []},
-    "diagnosis_source": "kt_rekt",
+    "diagnosis_source": "kt",
     "kt_metrics": {},
     "kt_model_info": {}
   }

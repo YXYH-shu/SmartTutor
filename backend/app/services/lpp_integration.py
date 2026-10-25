@@ -310,6 +310,29 @@ def validate_lpp_result(result: dict[str, Any]) -> None:
         skill_ids.add(skill_id)
 
 
+def validate_lpp_topic_scope(result: dict[str, Any], topic_skill_ids: list[int]) -> None:
+    """Reject any target, public stage or exercise escaping this turn's topic."""
+    allowed = {int(skill_id) for skill_id in topic_skill_ids}
+    if not allowed:
+        raise ValueError("当前学习主题没有可用知识点")
+
+    def check_points(points: Any, label: str) -> None:
+        if not isinstance(points, list) or not points:
+            raise ValueError(f"{label}缺少可验证的知识点")
+        ids = {
+            _coerce_skill_id(point.get("knowledge_point_id", point.get("skill_id")))
+            for point in points if isinstance(point, dict)
+        }
+        if len(ids) == 0 or None in ids or not ids <= allowed:
+            raise ValueError(f"{label}包含当前学习主题之外的知识点")
+
+    check_points((result.get("target") or {}).get("knowledge_points"), "目标题")
+    recommendation = result.get("recommendation") or {}
+    check_points(recommendation.get("knowledge_points"), "规划阶段")
+    for question in recommendation.get("questions") or []:
+        check_points(question.get("knowledge_points"), "推荐题目")
+
+
 def build_learning_path_fields(result: dict[str, Any]) -> dict[str, Any]:
     """Map the fixed P1-P5 knowledge-point path to the SmartTutor schema."""
     validate_lpp_result(result)
@@ -384,10 +407,19 @@ async def _run_lpp_command(arguments: list[str]) -> LppRuntimeOutput:
         kt_root = Path(__file__).resolve().parents[3] / kt_root
     environment = {
         **os.environ,
-        "REKT_DEVICE": "cpu",
-        "REKT_ALLOW_CPU_FALLBACK": "1",
+        "KT_DEVICE": "cpu",
+        "KT_ALLOW_CPU_FALLBACK": "1",
         "KT_RUNTIME_SKILL_ROOT": str(kt_root.resolve()),
+        "OMP_NUM_THREADS": str(settings.lpp.cpu_threads),
+        "MKL_NUM_THREADS": str(settings.lpp.cpu_threads),
+        "OPENBLAS_NUM_THREADS": str(settings.lpp.cpu_threads),
     }
+    started = asyncio.get_running_loop().time()
+    logger.info(
+        "LPP computation started: cpu_threads=%s, timeout_seconds=%s",
+        settings.lpp.cpu_threads,
+        settings.lpp.timeout_seconds,
+    )
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         str(skill_root / "scripts" / "run_lpp.py"),
@@ -398,20 +430,31 @@ async def _run_lpp_command(arguments: list[str]) -> LppRuntimeOutput:
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
+    communication = asyncio.create_task(process.communicate())
     try:
         stdout, stderr = await asyncio.wait_for(
-            process.communicate(),
+            # Keep draining both pipes until the worker has been reaped,
+            # including when the enclosing stage cancels this coroutine.
+            asyncio.shield(communication),
             timeout=settings.lpp.timeout_seconds,
         )
-    except TimeoutError:
+    except (TimeoutError, asyncio.CancelledError) as exc:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        await process.wait()
+        await communication
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         raise RuntimeError(
             f"LPP Skill timed out after {settings.lpp.timeout_seconds} seconds"
-        )
+        ) from exc
+
+    logger.info(
+        "LPP computation returned in %.2fs (exit=%s)",
+        asyncio.get_running_loop().time() - started,
+        process.returncode,
+    )
 
     raw_json = stdout.decode("utf-8", errors="replace").strip()
     stderr_text = stderr.decode("utf-8", errors="replace").strip()
@@ -435,6 +478,7 @@ async def run_lpp_for_student(
     *,
     target_question_id: int | None = None,
     preferred_skill_ids: list[int] | None = None,
+    topic_skill_ids: list[int] | None = None,
 ) -> LppRuntimeOutput | None:
     arguments = [
         "--student-id",
@@ -446,12 +490,19 @@ async def run_lpp_for_student(
     ]
     if target_question_id is not None:
         arguments.extend(["--target-question-id", str(target_question_id)])
-    elif preferred_skill_ids:
+    if preferred_skill_ids:
         arguments.extend(
             ["--preferred-skill-ids", ",".join(map(str, preferred_skill_ids))]
         )
+    if topic_skill_ids is not None:
+        if not topic_skill_ids:
+            return None
+        arguments.extend(["--topic-skill-ids", ",".join(map(str, topic_skill_ids))])
     try:
-        return await _run_lpp_command(arguments)
+        result = await _run_lpp_command(arguments)
+        if topic_skill_ids is not None:
+            validate_lpp_topic_scope(result.data, topic_skill_ids)
+        return result
     except Exception as exc:
         logger.warning(
             "LPP planning failed for student=%s: %s: %s",

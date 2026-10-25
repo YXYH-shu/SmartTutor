@@ -12,7 +12,7 @@ from run_lpp import (  # noqa: E402
     build_knowledge_point_recommendations,
     choose_starting_target_index,
 )
-from lpp_runtime.scorers.rekt_scorer import default_kt_runtime_skill_root  # noqa: E402
+from lpp_runtime.scorers.kt_scorer import default_kt_runtime_skill_root  # noqa: E402
 
 
 def test_default_kt_runtime_path_uses_smarttutor_sibling_service():

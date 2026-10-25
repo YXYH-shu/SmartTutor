@@ -150,7 +150,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
     },
     designNotes:
       '系统内唯一拥有自定义 post_process() 的 agent。执行后自动更新 UserProfile 的知识图谱、薄弱点和最后诊断时间。' +
-      '集成模式(settings.kt.mode=integrated)下,先调用 services/kt-runtime-skill 的 REKT 模型拿真实掌握度,' +
+      '集成模式(settings.kt.mode=integrated)下,先调用 services/kt-runtime-skill 的 KT 模型拿真实掌握度,' +
       'LLM 仅做认知归因,数值字段不会幻觉。',
     inputSchema: {
       type: 'object',
@@ -168,7 +168,7 @@ export const AGENT_CONFIGS: Record<string, AgentConfig> = {
         mastery_rates: { type: 'object', description: 'skill_id → 0..1' },
         weak_points: { type: 'array' },
         knowledge_graph: { type: 'object' },
-        diagnosis_source: { type: 'string', enum: ['llm_simulated', 'kt_rekt'] },
+        diagnosis_source: { type: 'string', enum: ['llm_simulated', 'kt'] },
       },
     },
     promptSummary:
@@ -454,7 +454,7 @@ export const AGENT_HIGHLIGHT_FIELDS: Record<string, HighlightFieldDef[]> = {
       key: 'diagnosis_source',
       label: '数据来源',
       format: (v: unknown) =>
-        v === 'kt_rekt'
+        v === 'kt'
           ? '真实KT模型'
           : typeof v === 'string'
             ? v

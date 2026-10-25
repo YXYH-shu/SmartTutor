@@ -27,6 +27,7 @@ import { AGENT_CONFIGS, AGENT_DISPLAY_ORDER, AGENT_HIGHLIGHT_FIELDS } from '@/da
 import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
 import { cn } from '@/utils/cn';
 import type { AgentTimelineItem } from '@/types';
+import { LearningModuleSummaryCard } from './learning-modules/LearningModuleSummaryCard';
 
 // 模块级空数组常量,避免 selector 用 ?? [] 每次创建新引用导致 useSyncExternalStore 死循环
 const EMPTY_TIMELINE: AgentTimelineItem[] = [];
@@ -121,8 +122,11 @@ function HeroSlot() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 px-3 py-3">
+    <div className={cn("flex h-full flex-col gap-2 px-3 py-3", heroes.some((name) => name === 'cognitive_diagnosis' || name === 'learning_path') && 'learning-summary-list')}>
       {heroes.map((name) => {
+        if (name === 'cognitive_diagnosis' || name === 'learning_path') {
+          return <LearningModuleSummaryCard key={name} name={name} />;
+        }
         const cfg = AGENT_CONFIGS[name];
         if (!cfg) return null;
         const Icon = getIcon(cfg.icon);

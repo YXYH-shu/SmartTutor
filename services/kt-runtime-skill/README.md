@@ -1,8 +1,8 @@
 # kt-runtime-skill
 
-这是 SmartTutor 内嵌的 KT/REKT 学情分析 Skill，供 `../chat-agent` 子服务调用。
+这是 SmartTutor 内嵌的 KT/KT 学情分析 Skill，供 `../chat-agent` 子服务调用。
 
-REKT 推理代码、数据和 checkpoint 已内化到本目录，不再依赖外部 REKT 项目目录。路径应始终基于本 Skill 目录或 SmartTutor 根目录计算，不要写本机绝对路径。
+KT 推理代码、数据和 checkpoint 已内化到本目录，不再依赖外部 KT 项目目录。路径应始终基于本 Skill 目录或 SmartTutor 根目录计算，不要写本机绝对路径。
 
 ## 1. 关键入口
 
@@ -27,9 +27,9 @@ conda run -n kt python services/kt-runtime-skill/scripts/run_kt.py --student-id 
 ## 2. 内置资源
 
 ```text
-scripts/kt_runtime/rekt_engine/      # 内化后的 REKT 推理代码
-assets/rekt/dataset/                 # REKT 数据
-assets/rekt/checkpoint/rekt.pt       # REKT checkpoint
+scripts/kt_runtime/kt_engine/      # 内化后的 KT 推理代码
+assets/kt/dataset/                 # KT 数据
+assets/kt/checkpoint/kt.pt       # KT checkpoint
 config/runtime.toml                  # 推理运行配置
 ```
 
@@ -66,7 +66,7 @@ llm_analysis.selected_knowledge_points
 ```json
 {
   "name": "kt-runtime-skill",
-  "description": "基于学生 ID 和可选学习上下文，运行 KT/REKT 推理并生成中文学情分析报告。",
+  "description": "基于学生 ID 和可选学习上下文，运行 KT/KT 推理并生成中文学情分析报告。",
   "input_schema": {
     "type": "object",
     "required": ["student_id"],

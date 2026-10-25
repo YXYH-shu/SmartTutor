@@ -1,7 +1,7 @@
-"""REKT 神经网络模型。
+"""KT 神经网络模型。
 
-本文件中的参数命名刻意保持与 `TZB_raw/rekt/model.py` 一致，因此旧版
-`rekt.pth` 权重可以不经过转换直接加载。
+本文件中的参数命名刻意保持与 `TZB_raw/kt/model.py` 一致，因此旧版
+`kt.pth` 权重可以不经过转换直接加载。
 """
 
 import torch
@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class ReKT(nn.Module):
+class KT(nn.Module):
     """Revisiting Knowledge Tracing 模型。
 
-    REKT 同时维护三类知识状态：
+    KT 同时维护三类知识状态：
     - problem/question state：学生对具体题目的掌握状态；
     - skill/concept state：学生对相关知识点的掌握状态；
     - domain state：学生在整个学习领域上的整体掌握状态。

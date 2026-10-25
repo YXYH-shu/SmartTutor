@@ -1,6 +1,6 @@
 """KT (Knowledge Tracing) 集成适配器。
 
-把 services/kt-runtime-skill 的 REKT 推理能力接入到 backend 的 cognitive_diagnosis
+把 services/kt-runtime-skill 的 KT 推理能力接入到 backend 的 cognitive_diagnosis
 agent。集成模式(integrated)下,cognitive_diagnosis 会优先调用本模块拿到真实的
 知识点掌握度,然后 LLM 只负责生成认知归因和自然语言解读。
 
@@ -55,7 +55,7 @@ def resolve_kt_student_id(
     input_data: dict[str, Any],
     context: dict[str, Any] | None = None,
 ) -> str | None:
-    """Resolve REKT/LPP student ID without treating the app UUID as a dataset ID."""
+    """Resolve KT/LPP student ID without treating the app UUID as a dataset ID."""
     context = context or {}
 
     for value in (
@@ -146,7 +146,7 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
     - knowledge_states: list[{skill_id, skill_name, mastery_percent, mastery_rate, status, evidence}]
     - mastery_rates: dict[str, float]  (skill_id → 0..1)
     - weak_points: list[dict]  (status == "weak" 的子集)
-    - diagnosis_source: "kt_rekt"  (标记数据来源,LLM 不可改写)
+    - diagnosis_source: "kt"  (标记数据来源,LLM 不可改写)
     - metrics, model_info, llm_analysis: KT 原始字段,供下游/前端展示
     """
     predictions = [
@@ -220,7 +220,7 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
             "mastery_rate": prob_float,
             "status": status,
             "mastery_label": _mastery_label(prob_float),
-            "evidence": extras.get("evidence", "REKT 模型预测"),
+            "evidence": extras.get("evidence", "KT 模型预测"),
         }
         knowledge_states.append(ks)
         mastery_rates[skill_id] = prob_float
@@ -234,7 +234,7 @@ def _normalize_kt_output(raw: dict[str, Any]) -> dict[str, Any]:
         "metrics": raw.get("metrics", {}) or {},
         "model_info": raw.get("model_info", {}) or {},
         "llm_analysis": raw.get("llm_analysis"),
-        "diagnosis_source": "kt_rekt",
+        "diagnosis_source": "kt",
     }
 
 
@@ -366,7 +366,7 @@ async def run_kt_for_student(
     """按学生 ID 调用 KT runtime,返回标准化诊断结果。
 
     Args:
-        student_id: 学生 ID(REKT 数据集里的索引,如 "40")
+        student_id: 学生 ID(KT 数据集里的索引,如 "40")
         targets: 可选,逗号分隔的预测目标 kp_id;留空则用 settings.kt.default_targets 或 kt config 默认
         history_limit: 历史序列截断长度
         initial_query: 学生当前问题,传给分析报告

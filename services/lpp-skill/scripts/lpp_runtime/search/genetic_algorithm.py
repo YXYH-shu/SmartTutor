@@ -5,7 +5,7 @@
 `scorers.base.KTScorer` 接口调用打分逻辑（`self.scorer.forward_batch(...)`、
 `self.scorer.skills_of(...)`、`self.scorer.questions_of_skill(...)`）。
 
-这样 DKT/SAKT、REKT，或者未来任何新模型，只要各自实现一个 `KTScorer`，
+这样 DKT/SAKT、KT，或者未来任何新模型，只要各自实现一个 `KTScorer`，
 就可以直接复用这里的搜索算法，不需要改动任何一行搜索逻辑。
 
 算法数学逻辑（交叉/变异概率、非支配排序、经验矩阵更新公式、softmax 采样
@@ -121,7 +121,7 @@ class GeneticAlgorithmBase:
         for pool, n in zip(candidate_pools, group_sizes):
             options = [x for x in pool if x != self.target_question]
             if not options:
-                # 极端情况下某个候选池为空（比如某个知识点在 REKT 里只映射了
+                # 极端情况下某个候选池为空（比如某个知识点在 KT 里只映射了
                 # 目标题目本身），退回全量候选池，保证一定能采样出个体。
                 options = [x for x in self.candidate_pool_all if x != self.target_question]
             for _ in range(n):
@@ -132,7 +132,7 @@ class GeneticAlgorithmBase:
                     ind_que = random.sample(options, self.cause_len)
                 else:
                     # DSMOEA 原本假设每个候选池至少有 cause_len 个不同题目
-                    # （Eedi 平均每个知识点关联 ~88 道题）。REKT 数据集更稀疏
+                    # （Eedi 平均每个知识点关联 ~88 道题）。KT 数据集更稀疏
                     # （每个知识点平均只关联 ~2.9 道题），候选池可能小于
                     # cause_len，这里退化为有放回采样，允许同一题目在基因里
                     # 出现多次（不影响算法正确性，只是候选题目多样性变低）。

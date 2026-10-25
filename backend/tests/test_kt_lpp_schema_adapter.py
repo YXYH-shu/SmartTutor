@@ -67,7 +67,7 @@ def test_kt_normalization_supplies_original_schema_fields():
                 }
             ],
             "metrics": {"auc": 0.8},
-            "model_info": {"name": "REKT"},
+            "model_info": {"name": "KT"},
         }
     )
 
@@ -78,7 +78,7 @@ def test_kt_normalization_supplies_original_schema_fields():
     assert state["mastery_percent"] == "25.0%"
     assert state["mastery_label"] == "较低"
     assert result["mastery_rates"] == {"17": 0.25}
-    assert result["diagnosis_source"] == "kt_rekt"
+    assert result["diagnosis_source"] == "kt"
 
 
 def test_kt_normalization_keeps_only_skill_selected_top_18():
@@ -182,7 +182,7 @@ def _diagnosis_states() -> list[dict]:
             "mastery_percent": f"{index}%",
             "mastery_label": "较低",
             "status": "weak",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         }
         for index in range(25)
     ]
@@ -195,7 +195,7 @@ def _diagnosis_states() -> list[dict]:
             "mastery_percent": f"{40 + index}%",
             "mastery_label": "中等",
             "status": "developing",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         }
         for index in range(10)
     )
@@ -208,7 +208,7 @@ def _diagnosis_states() -> list[dict]:
             "mastery_percent": f"{80 + index}%",
             "mastery_label": "良好",
             "status": "mastered",
-            "evidence": "REKT 模型预测",
+            "evidence": "KT 模型预测",
         }
         for index in range(5)
     )
@@ -296,7 +296,7 @@ async def test_knowledge_responder_prompt_uses_bounded_kt_and_lpp_context():
         "diagnosis_summary": "需要优先巩固基础概念。",
         "cognitive_attribution": {"root_causes": ["前置知识不牢固"]},
         "recommended_actions": ["先完成基础练习"],
-        "diagnosis_source": "kt_rekt",
+        "diagnosis_source": "kt",
         "kt_student_id": "43",
         "knowledge_states": _diagnosis_states(),
         "mastery_rates": {"full-mastery-rates-secret": 0.1},
@@ -447,7 +447,7 @@ async def test_learning_path_prompt_boundary_removes_full_runtime_and_profile_da
     diagnosis = {
         "diagnosis_summary": "优先修复基础知识。",
         "recommended_actions": ["先做基础题"],
-        "diagnosis_source": "kt_rekt",
+        "diagnosis_source": "kt",
         "knowledge_states": _diagnosis_states(),
         "mastery_rates": {"profile-full-rates-secret": 0.1},
         "weak_points": [{"evidence": "diagnosis-full-weak-secret"}],
@@ -558,6 +558,14 @@ def test_learning_path_llm_contract_requests_explanation_fields_only():
 
 @pytest.mark.asyncio
 async def test_cognitive_agent_uses_default_student_and_runtime_facts(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.agents.cognitive_diagnosis.retrieve_topic_knowledge",
+        AsyncMock(return_value={
+            "status": "ok", "method": "llm_closed_catalog", "topic_context": {},
+            "queries": {"core": ["物质分类"], "prerequisite": [], "safety_ethics": [], "application": []},
+            "matches": [{"skill_id": 17, "skill_name": "物质分类", "role": "core", "reason": "对应分类学习主题"}],
+        }),
+    )
     runtime = {
         "knowledge_states": [
             {
@@ -573,7 +581,7 @@ async def test_cognitive_agent_uses_default_student_and_runtime_facts(monkeypatc
         "mastery_rates": {"17": 0.25},
         "weak_points": [{"skill_id": "17", "skill_name": "物质分类"}],
         "metrics": {"auc": 0.8},
-        "model_info": {"name": "REKT"},
+        "model_info": {"name": "KT"},
     }
     llm = MagicMock()
     llm.chat_completion = AsyncMock(
@@ -607,8 +615,9 @@ async def test_cognitive_agent_uses_default_student_and_runtime_facts(monkeypatc
     assert agent._run_kt_diagnosis.await_args.args[0] == "43"
     assert output["knowledge_states"][0]["skill_id"] == "17"
     assert output["mastery_rates"] == {"17": 0.25}
-    assert output["weak_points"] == runtime["weak_points"]
-    assert output["diagnosis_source"] == "kt_rekt"
+    assert [(point["skill_id"], point["skill_name"]) for point in output["weak_points"]] == [(point["skill_id"], point["skill_name"]) for point in runtime["weak_points"]]
+    assert output["weak_points"][0]["mastery_rate"] == 0.25
+    assert output["diagnosis_source"] == "kt"
     assert output["diagnosis_summary"] == "需要巩固分类依据。"
     validate(instance=output, schema=agent.output_schema)
     agent.post_process.assert_awaited_once()
@@ -619,6 +628,15 @@ async def test_cognitive_agent_uses_default_student_and_runtime_facts(monkeypatc
 @pytest.mark.asyncio
 async def test_learning_path_exposes_runtime_knowledge_points_and_aliases(monkeypatch):
     runtime_data = _lpp_runtime_result()
+    runtime_data["target"]["knowledge_points"] = [{"knowledge_point_id": 11, "knowledge_point_name": "知识点1"}]
+    monkeypatch.setattr(
+        "app.services.agents.learning_path.retrieve_topic_knowledge",
+        AsyncMock(return_value={
+            "status": "ok", "method": "llm_closed_catalog", "topic_context": {},
+            "queries": {"core": ["本轮学习主题"], "prerequisite": [], "safety_ethics": [], "application": []},
+            "matches": [{"skill_id": 10 + i, "skill_name": f"知识点{i}", "role": "core", "reason": "对应本轮学习主题"} for i in range(1, 6)],
+        }),
+    )
     run_lpp = AsyncMock(
         return_value=LppRuntimeOutput(data=runtime_data, raw_json="{}")
     )
@@ -665,7 +683,8 @@ async def test_learning_path_exposes_runtime_knowledge_points_and_aliases(monkey
     assert [point["order"] for point in output["recommended_knowledge_points"]] == [1, 2, 3, 4, 5]
     assert "recommended_questions" not in output
     assert output["lpp_source"] == "lpp_runtime"
-    assert output["planning_rationale"] == "根据知识点优先级安排五步学习。"
+    assert all(stage["name"] in output["planning_rationale"] for stage in output["learning_path"])
+    assert "对应本轮学习主题" in output["planning_rationale"]
 
 
 @pytest.mark.asyncio

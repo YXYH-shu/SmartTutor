@@ -1,7 +1,7 @@
-"""REKT 打分器：包装 kt-runtime-skill 的 ReKT 模型和数据加载逻辑。
+"""KT 打分器：包装 kt-runtime-skill 的 KT 模型和数据加载逻辑。
 
-不复制 REKT 引擎代码——直接引用 `kt-runtime-skill` 里的现成实现（数据加载、
-模型定义、checkpoint 加载），保证 REKT 只有一份权威实现，改 bug/加功能只用
+不复制 KT 引擎代码——直接引用 `kt-runtime-skill` 里的现成实现（数据加载、
+模型定义、checkpoint 加载），保证 KT 只有一份权威实现，改 bug/加功能只用
 改一个地方。
 """
 
@@ -30,18 +30,18 @@ _SCRIPTS_DIR = KT_RUNTIME_SKILL_ROOT / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from kt_runtime.rekt_engine.config import ReKTConfig  # noqa: E402
-from kt_runtime.rekt_engine.data import ReKTDataBundle, load_rekt_data  # noqa: E402
-from kt_runtime.rekt_engine.model import ReKT  # noqa: E402
+from kt_runtime.kt_engine.config import KTConfig  # noqa: E402
+from kt_runtime.kt_engine.data import KTDataBundle, load_kt_data  # noqa: E402
+from kt_runtime.kt_engine.model import KT  # noqa: E402
 
 
-class RektScorer:
-    """基于 kt-runtime-skill 里已训练好的 REKT 模型实现的 KTScorer。"""
+class KTScorer:
+    """基于 kt-runtime-skill 里已训练好的 KT 模型实现的 KTScorer。"""
 
-    def __init__(self, config: ReKTConfig | None = None):
-        self.config = config or ReKTConfig.from_env()
+    def __init__(self, config: KTConfig | None = None):
+        self.config = config or KTConfig.from_env()
         self._device = self._resolve_device(self.config.device, self.config.allow_cpu_fallback)
-        self.data: ReKTDataBundle = load_rekt_data(self.config.data_dir)
+        self.data: KTDataBundle = load_kt_data(self.config.data_dir)
         self._question_metadata = self._load_question_metadata()
         self._knowledge_metadata = self._load_knowledge_metadata()
         self._knowledge_by_topic = self._index_knowledge_by_topic()
@@ -60,8 +60,8 @@ class RektScorer:
             return torch.device("cpu")
         return requested
 
-    def _load_model(self) -> ReKT:
-        model = ReKT(
+    def _load_model(self) -> KT:
+        model = KT(
             qst_num=self.data.qst_num,
             skl_num=self.data.skl_num,
             max_seq_len=self.config.max_seq_len,
@@ -200,11 +200,11 @@ class RektScorer:
     def forward_batch(
         self, hist_q: torch.Tensor, hist_a: torch.Tensor, next_q: torch.Tensor
     ) -> torch.Tensor:
-        """把 DSMOEA 风格的 (hist_q, hist_a, next_q) 转成 REKT 需要的输入。
+        """把 DSMOEA 风格的 (hist_q, hist_a, next_q) 转成 KT 需要的输入。
 
-        REKT 是自回归模型：每一步的预测依赖之前所有步骤累积的状态，因此需要把
+        KT 是自回归模型：每一步的预测依赖之前所有步骤累积的状态，因此需要把
         "已发生的历史"(hist_q/hist_a) 和"本次要评估的新候选题目"
-        (next_q 的最后一位) 拼接成一条完整的交互链，再整体喂给 REKT。
+        (next_q 的最后一位) 拼接成一条完整的交互链，再整体喂给 KT。
 
         `next_q` 除最后一位外的其余位置在 DSMOEA 的调用惯例里只是占位
         （调用方只读取输出的最后一位），这里不需要用到。
@@ -213,7 +213,7 @@ class RektScorer:
         target_q = next_q[:, -1:].to(device).long()
         merged_q = torch.cat([hist_q.to(device).long(), target_q], dim=1)
 
-        # 新增位置的答案不影响它自己这一步的预测结果——REKT 先用之前的状态
+        # 新增位置的答案不影响它自己这一步的预测结果——KT 先用之前的状态
         # 预测当前题目，然后才用当前题目的答案去更新状态；由于这是序列里的
         # 最后一位，之后不会再有人读取被更新之后的状态，占位成 0 即可。
         pad_ans = torch.zeros_like(target_q)
@@ -221,7 +221,7 @@ class RektScorer:
 
         merged_skill = self._primary_skill[merged_q]
 
-        # `last_problem` 参数在 ReKT.forward 内部只用来取 shape，从不参与实际
+        # `last_problem` 参数在 KT.forward 内部只用来取 shape，从不参与实际
         # 计算（详见 kt-runtime-skill 的 model.py），占位即可。
         dummy_last = torch.zeros_like(merged_q)
 

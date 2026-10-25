@@ -10,7 +10,7 @@
 
 - `cognitive_diagnosis` 调用 KT Runtime，并把真实结果映射到原诊断字段。
 - `learning_path` 调用 LPP Runtime，并把固定 P1～P5 推荐映射到原路径字段。
-- 修正 KT/LPP 使用的学生编号解析，不把 SmartTutor 用户 UUID 当作 REKT 学生编号。
+- 修正 KT/LPP 使用的学生编号解析，不把 SmartTutor 用户 UUID 当作 KT 学生编号。
 - 为后端与前端已有字段名差异提供兼容别名。
 - 增加配置、测试和必要的运行说明。
 
@@ -62,7 +62,7 @@ SmartTutor 已有输入继续保留：
 - `targets`：可选知识点目标。
 - `history_context`：可选补充学习历史。
 
-不使用 SmartTutor 用户 UUID 作为 REKT 学生编号。当前集成验证阶段统一以数据集学生 `43` 作为最终兜底；该值通过配置暴露，后续接入正式身份映射时可以关闭或替换。
+不使用 SmartTutor 用户 UUID 作为 KT 学生编号。当前集成验证阶段统一以数据集学生 `43` 作为最终兜底；该值通过配置暴露，后续接入正式身份映射时可以关闭或替换。
 
 ### 输出
 
@@ -233,7 +233,7 @@ learning_path output
 ### 目标与边界
 
 KT 与 LPP Runtime 必须先按现有算法完整执行，压缩只发生在 Runtime 返回之后、
-调用 LLM 之前。不得修改 REKT 推理、预测目标、学生历史读取、LPP 目标题滑窗、
+调用 LLM 之前。不得修改 KT 推理、预测目标、学生历史读取、LPP 目标题滑窗、
 遗传搜索、候选池、补齐策略或 P1～P5 顺序。
 
 ### 认知诊断

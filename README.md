@@ -4,7 +4,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。当前分支�
 
 > **集成现状**:本分支 `integrate/both-prs` 已合并两个独立开发的 PR:
 > - **资源与学伴推荐**:`resource_recommender` 与 `study_buddy` 共用异构图推荐模型，分别提供资源/学伴的个性化排序与相似度排序
-> - **PR #1 KT 诊断**:引入 `kt-runtime-skill`,内化 REKT 知识追踪模型(课题 4.1)。`cognitive_diagnosis` agent 可通过开关集成调用,前端也可走 iframe 独立服务模式
+> - **PR #1 KT 诊断**:引入 `kt-runtime-skill`,内化 KT 知识追踪模型(课题 4.1)。`cognitive_diagnosis` agent 可通过开关集成调用,前端也可走 iframe 独立服务模式
 
 ---
 
@@ -58,7 +58,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。当前分支�
 │              │  外部能力(可选开关)           │         │
 │              │  ┌──────────────────────┐    │         │
 │              │  │ kt-runtime-skill     │ ← cognitive_diagnosis │
-│              │  │ (REKT 知识追踪)       │    │         │
+│              │  │ (KT 知识追踪)       │    │         │
 │              │  └──────────────────────┘    │         │
 │              │  ┌──────────────────────┐    │         │
 │              │  │ Heterogeneous GAT    │ ← resource_recommender / study_buddy │
@@ -99,7 +99,7 @@ SmartTutor 是一个基于 LangGraph 的多智能体教育平台。当前分支�
 - **职责**:知识掌握度评估 + 认知归因。输出 15-25 个知识点的掌握百分比、认知归因、知识图谱(6 种关系类型)和薄弱点列表
 - **集成模式**(由 `SMART_TUTOR_KT__MODE` 控制):
   - `off` (默认):LLM 模拟,数值由 LLM 直接生成
-  - `integrated`:**调用 kt-runtime-skill 的 REKT 模型拿真实掌握度**,LLM 仅做认知归因,数值字段不会幻觉(详见 [KT 集成](#kt-知识追踪集成课题-41))
+  - `integrated`:**调用 kt-runtime-skill 的 KT 模型拿真实掌握度**,LLM 仅做认知归因,数值字段不会幻觉(详见 [KT 集成](#kt-知识追踪集成课题-41))
   - `standalone`:KT 走独立服务(前端 iframe),cognitive_diagnosis 行为同 `off`
 - **特殊行为**:唯一拥有自定义 `post_process()` 的智能体,执行后自动更新 UserProfile 的知识图谱、薄弱点和最后诊断时间
 - **参数**:temperature=0.3
@@ -274,11 +274,15 @@ SafetyMonitorAgent
                 ↓
         解析学生编号（显式输入 → 用户画像 → 默认 43）
                 ↓
+        topic_retrieval：当前问题 + 安全改写学科背景 → 全目录语义选点与独立复核
+                ↓
+        相关点按语义排序在前，拓展补足 18 个 KT targets 并标注关联层级
+                ↓
         app.services.kt_integration.run_kt_for_student()
                 ↓
         services/kt-runtime-skill/scripts/kt_runtime/api.py
                 ↓
-        REKT 模型推理(加载 rekt.pt,跑 PyTorch forward)
+        KT 模型推理(加载 kt.pt,跑 PyTorch forward)
                 ↓
         返回 KTPredictResponse(predictions, metrics, llm_analysis)
                 ↓
@@ -289,10 +293,25 @@ SafetyMonitorAgent
         LLM 仅产出 cognitive_attribution(认知归因文案)
 ```
 
-学习路径 Agent 使用同一学生编号调用 `services/lpp-skill`，把 Runtime 返回的固定
-P1～P5 推荐题映射到原项目预定义的 `learning_path` 字段，同时提供前端兼容别名
-`stages`。LLM 只补充 `planning_rationale`、`adaptive_rules` 等解释字段，不能改写
-题目、题序和知识点事实。右侧执行面板会展示这两个 Agent 的完整结构化输出。
+学习路径 Agent 使用同一学生编号调用 `services/lpp-skill`，仅复用本轮语义检索结果；
+跨轮重新检索，明确接续时只携带上轮安全语义主题，不复用旧掌握度。
+诊断展示固定 18 个点：已复核相关点在前，后段弱关联拓展点用于额外学情参考；
+所有数值仍由 KT 提供。诊断归因及学习路径仅使用相关前段，补齐项不冒充当前问题的核心短板。
+目标题、所有候选练习和 P1～P5 知识点限定在本轮主题集合，优先保留当前核心目标；
+不足五点时明确返回不可用，不跨学科补齐。固定知识点路径映射到 `learning_path`，
+并提供前端兼容别名 `stages`。`planning_rationale` 使用实际阶段名与已复核关联理由
+组装，LLM 补充 `adaptive_rules` 等教学解释，不能改写题目、题序和知识点事实。
+右侧执行面板会展示这两个 Agent 的完整结构化输出。
+
+语义检索读取有题目映射的完整真实知识点目录（目前 334 项）。危险原句仅留在追踪
+字段，检索和解释使用安全学习任务及学科分支；普通 PASS 问题不引入安全模块的默认
+“安全与风险”目标。题库没有当前专业主题时返回无匹配，KT 或检索故障时不伪造诊断。
+
+路径规划的 CPU 计算线程默认限制为 1，可通过
+`SMART_TUTOR_LPP__CPU_THREADS` 调整，避免小批量 KT 推理被大量线程调度拖慢。
+`SMART_TUTOR_LPP__TIMEOUT_SECONDS` 默认 120 秒，同时用于规划节点和计算子进程，
+并受整个阶段的剩余时间及问答保留预算约束。规划超时或规划任务被取消时，系统会终止并回收
+整个计算子进程组。
 
 ### KT 输出 schema 映射
 
@@ -310,7 +329,7 @@ P1～P5 推荐题映射到原项目预定义的 `learning_path` 字段，同时�
 调用 `predict_from_student_id("40")` 输出:
 - 知识点总数:**334**
 - 薄弱知识点:**263** (status=weak)
-- 数据来源标记:`diagnosis_source = "kt_rekt"`
+- 数据来源标记:`diagnosis_source = "kt"`
 - 第一个知识点:skill_id=1, mastery=34.6%, status=weak
 
 ---
@@ -586,15 +605,15 @@ SmartTutor/
 │   │   ├── web/                      # 独立前端(index.html / app.js / style.css)
 │   │   ├── tests/                    # 12 个测试文件
 │   │   └── pyproject.toml
-│   └── kt-runtime-skill/            # 内化 REKT 的 KT Skill
+│   └── kt-runtime-skill/            # 内化 KT 的 KT Skill
 │       ├── scripts/
 │       │   ├── run_kt.py             # CLI 入口
 │       │   └── kt_runtime/           # Python 包(integrated 模式 import 此处)
 │       │       ├── api.py            # Python API 入口(predict_from_student_id 等)
 │       │       ├── contracts.py      # KTPredictRequest / Response 数据类
-│       │       ├── rekt_engine/      # REKT 推理引擎
+│       │       ├── kt_engine/      # KT 推理引擎
 │       │       └── analysis_report.py
-│       ├── assets/rekt/              # 模型 checkpoint + 数据集(rekt.pt + 5000 student_record)
+│       ├── assets/kt/              # 模型 checkpoint + 数据集(kt.pt + 5000 student_record)
 │       └── tests/                    # 6 个测试文件
 │
 ├── scripts/kt-topic4/                # 课题 4.1 启动脚本
@@ -611,6 +630,13 @@ SmartTutor/
 ---
 
 ## 快速启动
+
+### Docker 与端口转发的前端构建
+
+生产页面经 nginx 访问 API，接口地址使用页面当前来源，支持只转发 3000 或映射到任意本地端口。
+在仓库根目录运行 `scripts/build_frontend_production.sh` 构建前端。该脚本显式清空
+`VITE_API_URL`，避免本地开发 `.env` 的 `127.0.0.1:8000` 被编入生产文件。
+部署的是生成的 `frontend/dist`；开发环境 `.env` 可保留自己的后端地址。
 
 ### 模型端点配置说明(每个 agent 独立)
 
@@ -667,7 +693,7 @@ npm run dev             # http://localhost:5173
 
 ### 方式二:KT 集成模式(integrated,推荐生产)
 
-集成模式下,`cognitive_diagnosis` 调用真实 REKT 模型,数值不幻觉。
+集成模式下,`cognitive_diagnosis` 调用真实 KT 模型,数值不幻觉。
 
 ```bash
 # 后端启动时设置 KT 模式
@@ -703,8 +729,8 @@ result = await agent.execute(
     input_data={"current_message": "诊断学情"},
     context={"conversation_id": "test"}
 )
-# result["output"]["diagnosis_source"] == "kt_rekt"
-# result["output"]["knowledge_states"] 来自真实 REKT 推理
+# result["output"]["diagnosis_source"] == "kt"
+# result["output"]["knowledge_states"] 来自真实 KT 推理
 ```
 
 ### 方式三:KT 独立服务模式(standalone,PR #1 原方案)
@@ -888,7 +914,7 @@ SELECT * FROM users LIMIT 5;
 | 迁移 | Alembic |
 | 配置 | pydantic-settings |
 | 认证 | JWT (PyJWT) + bcrypt |
-| ML 推理 | PyTorch 2.12(异构图推荐 + REKT) |
+| ML 推理 | PyTorch 2.12(异构图推荐 + KT) |
 | 前端 | React 18 + TypeScript + Vite |
 | 状态管理 | Zustand |
 | 样式 | TailwindCSS |

@@ -51,18 +51,18 @@ Optional context:
 
 - `target_question_id`: 起始题目 ID；不传时从学生序列默认位置开始规划
 
-默认用 `REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py` 执行学习路径规划运行时。
+默认用 `KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py` 执行学习路径规划运行时。
 
 Default student-ID planning:
 
 ```bash
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py --student-id 43
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py --student-id 43
 ```
 
 Include `--target-question-id` only when the user has already provided a concrete target question:
 
 ```bash
-REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py \
+KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp.py \
   --student-id 43 \
   --target-question-id 774
 ```
@@ -78,7 +78,7 @@ REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1 conda run -n kt python scripts/run_lpp
   不强行构造递进。
 - 自然语言和表格不得暴露遗传算法、候选池、ACE 排名或其他内部诊断过程。
 - 第三部分 JSON 不重组、不摘要、不新增字段，也不把 Agent 生成的自然语言写回 JSON。
-- 在沙盒中调用运行时时，必须使用 `REKT_DEVICE=cpu REKT_ALLOW_CPU_FALLBACK=1`
+- 在沙盒中调用运行时时，必须使用 `KT_DEVICE=cpu KT_ALLOW_CPU_FALLBACK=1`
   和 conda 环境 `kt`；不要默认请求 GPU。
 
 ## 开发与维护路由

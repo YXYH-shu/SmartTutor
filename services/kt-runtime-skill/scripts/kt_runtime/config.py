@@ -10,9 +10,9 @@ KT_RUNTIME_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_DIR = os.path.dirname(KT_RUNTIME_DIR)
 SKILL_ROOT = os.path.dirname(SCRIPTS_DIR)
 DEFAULT_CONFIG_PATH = os.path.join(SKILL_ROOT, "config", "runtime.toml")
-DEFAULT_REKT_CLI_PATH = os.path.join(SKILL_ROOT, "scripts", "kt_runtime", "rekt_engine", "cli.py")
-DEFAULT_REKT_DATA_DIR = os.path.join(SKILL_ROOT, "assets", "rekt", "dataset")
-DEFAULT_REKT_CHECKPOINT_PATH = os.path.join(SKILL_ROOT, "assets", "rekt", "checkpoint", "rekt.pt")
+DEFAULT_KT_CLI_PATH = os.path.join(SKILL_ROOT, "scripts", "kt_runtime", "kt_engine", "cli.py")
+DEFAULT_KT_DATA_DIR = os.path.join(SKILL_ROOT, "assets", "kt", "dataset")
+DEFAULT_KT_CHECKPOINT_PATH = os.path.join(SKILL_ROOT, "assets", "kt", "checkpoint", "kt.pt")
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -20,13 +20,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "num_skills": 348,
     },
     "runtime": {
-        "backend": "rekt_cli",
+        "backend": "kt_cli",
         "device": "cuda:0",
     },
-    "rekt": {
-        "cli_path": DEFAULT_REKT_CLI_PATH,
-        "data_dir": DEFAULT_REKT_DATA_DIR,
-        "checkpoint_path": DEFAULT_REKT_CHECKPOINT_PATH,
+    "kt": {
+        "cli_path": DEFAULT_KT_CLI_PATH,
+        "data_dir": DEFAULT_KT_DATA_DIR,
+        "checkpoint_path": DEFAULT_KT_CHECKPOINT_PATH,
         "max_seq_len": 200,
         "hidden_dim": 128,
         "dropout": 0.4,

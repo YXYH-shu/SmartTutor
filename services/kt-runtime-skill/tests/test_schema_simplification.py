@@ -67,14 +67,14 @@ class SchemaSimplificationTest(unittest.TestCase):
                 "task",
                 "student_trace",
                 "targets",
-                "rekt_skill_arg",
+                "kt_skill_arg",
                 "device",
                 "analysis_enabled",
                 "analysis_context",
             },
         )
         self.assertEqual(payload["targets"], [{"skill_id": 2}, {"skill_id": 3}])
-        self.assertEqual(payload["rekt_skill_arg"], "2,3")
+        self.assertEqual(payload["kt_skill_arg"], "2,3")
         self.assertEqual(payload["device"], "cuda:0")
         self.assertEqual(payload["analysis_context"]["history_context"], "上下文。")
 
@@ -89,13 +89,13 @@ class SchemaSimplificationTest(unittest.TestCase):
             )
 
         self.assertEqual(payload["targets"], [{"skill_id": 1}, {"skill_id": 2}])
-        self.assertEqual(payload["rekt_skill_arg"], "all")
+        self.assertEqual(payload["kt_skill_arg"], "all")
 
     def test_request_factory_rejects_unpredictable_explicit_target(self):
         with patch("kt_runtime.request_factory.infer_num_skills", return_value=3), patch(
             "kt_runtime.request_factory.load_kp_catalog_from_config", return_value={1: {}, 2: {}}
         ):
-            with self.assertRaisesRegex(ValueError, "no REKT question mapping"):
+            with self.assertRaisesRegex(ValueError, "no KT question mapping"):
                 build_request_from_trace(
                     [{"skill_id": 1, "correct": 1}],
                     raw_targets="3",

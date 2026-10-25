@@ -1,4 +1,4 @@
-"""REKT 工具边界使用的数据结构。"""
+"""KT 工具边界使用的数据结构。"""
 
 from dataclasses import asdict, dataclass
 from typing import Dict, List
@@ -22,7 +22,7 @@ class SkillMastery:
 
 @dataclass(frozen=True)
 class DiagnosisResult:
-    """REKT 工具服务返回的结构化诊断结果。"""
+    """KT 工具服务返回的结构化诊断结果。"""
 
     user_id: int
     history_limit: int

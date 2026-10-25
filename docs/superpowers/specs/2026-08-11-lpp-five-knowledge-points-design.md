@@ -3,7 +3,7 @@
 ## Goal
 
 Expose a stable, ordered five-knowledge-point learning path while preserving
-the existing DSMOEA/REKT question-level search as an internal scoring source.
+the existing DSMOEA/KT question-level search as an internal scoring source.
 
 ## Boundary
 

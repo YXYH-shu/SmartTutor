@@ -63,7 +63,7 @@ class AnalysisReportTest(unittest.TestCase):
             "电路基本元件",
         )
 
-    def test_mastery_status_uses_rekt_cli_field(self):
+    def test_mastery_status_uses_kt_cli_field(self):
         mastery_rows = _build_mastery_rows(
             [
                 {
@@ -131,7 +131,7 @@ class AnalysisReportTest(unittest.TestCase):
         self.assertIn("| KP001 | 目录知识点名称 | 62.5% | 掌握 | - |", markdown)
         self.assertNotIn("优先级", markdown)
 
-    def test_mastery_percent_preserves_rekt_cli_decimal(self):
+    def test_mastery_percent_preserves_kt_cli_decimal(self):
         mastery_rows = _build_mastery_rows(
             [
                 {

@@ -97,7 +97,10 @@ class LPPSettings(BaseSettings):
 
     enabled: bool = True
     skill_path: str = "services/lpp-skill"
-    timeout_seconds: int = 600
+    # Shared planning budget; the stage deadline may shorten it.
+    timeout_seconds: int = Field(default=120, ge=1)
+    # Small, repeated KT inference batches run slower with large CPU thread pools.
+    cpu_threads: int = Field(default=1, ge=1)
     history_length: int = 10
     seed: int = 42
 
@@ -110,8 +113,9 @@ class StageSettings(BaseSettings):
     """
 
     # 整个 stage（一轮所有 agent）的总预算。GUIDE 兑现轮队列 6 个 agent，
-    # 单 agent 超时上限之和 300s，总预算必须不低于此值。
-    total_timeout_seconds: float = 360.0
+    # learning_path 上限随 lpp.timeout_seconds 提至 120s 后，最坏情况和
+    # 90+120+30+60+30+30=360s，总预算需留出余量。
+    total_timeout_seconds: float = 420.0
     # 给 knowledge_responder 至少保留多少秒（兜底，防止它没机会运行）。
     knowledge_reserve_seconds: float = 60.0
 

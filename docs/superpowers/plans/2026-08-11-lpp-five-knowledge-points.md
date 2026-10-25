@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Return an ordered, stable P1--P5 knowledge-point path without changing the current DSMOEA/REKT question-level search.
+**Goal:** Return an ordered, stable P1--P5 knowledge-point path without changing the current DSMOEA/KT question-level search.
 
 **Architecture:** The runtime derives five distinct knowledge points from its existing ACE-ranked candidates and question-level fallback data. The SmartTutor adapter validates and projects that list, then overwrites the agent's path fields with five knowledge-point stages. Question payloads remain internal runtime compatibility data only.
 
@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Preserve the existing planning rationale, learning-objective, and adaptive-rule templates.
-- Do not modify DSMOEA/REKT search or scoring.
+- Do not modify DSMOEA/KT search or scoring.
 - Expose exactly five distinct ordered knowledge points, or an explicit unavailable result.
 - Do not expose recommendation questions in the final learning-plan response or LLM prompt.
 

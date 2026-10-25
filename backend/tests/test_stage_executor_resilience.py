@@ -56,6 +56,48 @@ class HangingAgent:
 
 
 @pytest.mark.asyncio
+async def test_path_planning_honors_lpp_budget_and_passes_actual_plan_to_responder(monkeypatch):
+    class Planner:
+        async def execute(self, *, input_data, context):
+            await asyncio.sleep(0.04)
+            return {
+                "output": {
+                    "lpp_source": "lpp_runtime",
+                    "learning_path": [{"stage_id": f"P{i}"} for i in range(1, 6)],
+                }
+            }
+
+    responder = CapturingAgent({"response_text": "已根据规划结果安排学习。"})
+    agents = {"learning_path": Planner(), "knowledge_responder": responder}
+    monkeypatch.setattr(stage_module, "_get_engine", lambda: StubEngine())
+    monkeypatch.setattr(stage_module, "get_agent", lambda name: agents[name])
+    monkeypatch.setitem(stage_module._AGENT_TIMEOUT_SECONDS, "learning_path", 0.01)
+    monkeypatch.setattr(stage_module, "_STAGE_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(stage_module, "_KNOWLEDGE_RESERVE_SECONDS", 0.1)
+    from app.config import settings
+    monkeypatch.setattr(settings.lpp, "timeout_seconds", 0.2)
+
+    result = await stage_module.stage_executor(
+        {
+            "user_id": "user-test",
+            "conversation_id": "conversation-test",
+            "messages": [HumanMessage(content="请规划五阶段学习路径")],
+            "context": {},
+            "workflow_type": "adaptive_learning",
+            "current_stage": "teaching",
+            "next_agents": ["learning_path", "knowledge_responder"],
+            "stage_counter": 0,
+            "user_profile": {},
+        }
+    )
+
+    assert "learning_path" not in result["context"].get("_agent_errors", {})
+    plan = responder.input_data["learning_plan"]
+    assert plan["lpp_source"] == "lpp_runtime"
+    assert [s["stage_id"] for s in plan["learning_path"]] == ["P1", "P2", "P3", "P4", "P5"]
+
+
+@pytest.mark.asyncio
 async def test_stage_timeout_skips_hanging_agent_and_still_returns_response(monkeypatch):
     agents = {
         "cognitive_diagnosis": ImmediateAgent(
