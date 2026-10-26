@@ -63,6 +63,18 @@ function learningTask(resource: RecommendedResource): string {
   return '观看时暂停两次，分别记录一个新概念和一个仍有疑问的地方。';
 }
 
+function recommendationReason(resource: RecommendedResource): string {
+  const reason = resource.recommend_reason?.trim();
+  if (reason && !['Selected by resource recall.', 'Based on similarity to the selected reference resource.'].includes(reason)) return reason;
+  const focus = resource.knowledge_tags?.slice(0, 2).join('、');
+  const prefix = focus ? `它聚焦“${focus}”，` : '它与本轮学习主题紧密相关，';
+  if (resource.type === 'practice') return `${prefix}适合通过动手观察来验证刚学到的规律。`;
+  if (resource.type === 'quiz') return `${prefix}适合在学习后检查理解，并发现还需要巩固的地方。`;
+  if (resource.type === 'video' && resource.difficulty === 'beginner') return `${prefix}内容从基础讲起，适合先建立直观理解。`;
+  if (resource.type === 'video') return `${prefix}通过视频联系具体场景，适合在掌握基础后继续拓展。`;
+  return `${prefix}适合系统梳理知识，并加深对实际应用的理解。`;
+}
+
 function ResourceMotionStyles() {
   return (
     <style>{`
@@ -187,6 +199,10 @@ function ResourceCard({ resource, index }: { resource: RecommendedResource; inde
           {resource.knowledge_tags && resource.knowledge_tags.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">{resource.knowledge_tags.slice(0, 3).map((tag) => <span key={tag} className="rounded-full border border-border-subtle bg-bg-base/70 px-1.5 py-0.5 text-[9px] text-text-secondary">{tag}</span>)}</div>
           )}
+          <div className="mt-2 rounded-lg border border-amber-400/15 bg-amber-400/5 px-2 py-1.5">
+            <div className="flex items-center gap-1 text-[9px] font-semibold text-amber-700 dark:text-amber-300"><Sparkles size={10} /><span>为什么推荐</span></div>
+            <p className="mt-1 text-[9px] leading-4 text-text-secondary">{recommendationReason(resource)}</p>
+          </div>
           <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-emerald-500/5 px-2 py-1.5 text-[9px] leading-4 text-text-secondary"><Check size={10} className="mt-0.5 shrink-0 text-emerald-500" /><span>{learningTask(resource)}</span></div>
         </div>
       </div>

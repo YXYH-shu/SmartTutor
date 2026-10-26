@@ -1,5 +1,5 @@
 import api from './api';
-import type { Message, StreamChunk, FeedbackRequest, StreamDonePayload } from '@/types';
+import type { Message, StreamChunk, FeedbackRequest, StreamDonePayload, StudyBuddyOutput } from '@/types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -199,6 +199,18 @@ export const chatService = {
 
   async sendFeedback(data: FeedbackRequest): Promise<void> {
     await api.post('/api/v1/chat/feedback', data);
+  },
+
+  async recommendStudyBuddies(
+    userMessage: string,
+    assistantMessage: string,
+  ): Promise<StudyBuddyOutput> {
+    const res = await api.post<{ output: StudyBuddyOutput }>(
+      '/api/v1/agents/study-buddy/recommend',
+      { user_message: userMessage, assistant_message: assistantMessage },
+      { timeout: 90_000 },
+    );
+    return res.data.output;
   },
 
   async regenerateStream(

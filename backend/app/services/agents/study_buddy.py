@@ -732,15 +732,21 @@ class StudyBuddyAgent(BaseAgent):
             score = (self._safe_float(effective_similarity_score, 0) + 1.0) / 2.0
         if score is None:
             score = candidate.get("complement_score")
+        strengths = self._strong_knowledge(candidate.get("knowledge_graph")) or self._as_list(llm_value.get("strengths"))
+        collaboration_mode = str(llm_value.get("collaboration_mode") or "互问互答")
+        reason = str(llm_value.get("recommend_reason") or "").strip()
+        if not reason:
+            reason = self._student_recommend_reason(strengths, collaboration_mode)
         result = {
             "user_id": str(candidate.get("user_id") or ""),
             "nickname": str(candidate.get("nickname") or "学习伙伴"),
             "complement_score": self._safe_float(score, 0),
             "dimension_scores": dimension_scores or candidate.get("dimension_scores") or llm_value.get("dimension_scores") or {},
-            "strengths": self._strong_knowledge(candidate.get("knowledge_graph")) or self._as_list(llm_value.get("strengths")),
+            "strengths": strengths,
             "weaknesses": self._as_list(candidate.get("weak_points")),
-            "contact_suggestion": str(llm_value.get("contact_suggestion") or "可以先围绕当前主题一起讨论。"),
-            "collaboration_mode": str(llm_value.get("collaboration_mode") or "互问互答"),
+            "recommend_reason": reason,
+            "contact_suggestion": str(llm_value.get("contact_suggestion") or "可以从本轮最想弄懂的问题开始互相交流。"),
+            "collaboration_mode": collaboration_mode,
         }
         if effective_graph_score is not None:
             result["graph_score"] = self._safe_float(effective_graph_score, 0)
@@ -749,6 +755,33 @@ class StudyBuddyAgent(BaseAgent):
         if candidate.get("rank") is not None:
             result["rank"] = self._safe_int(candidate.get("rank"), 0)
         return result
+
+    @staticmethod
+    def _student_recommend_reason(strengths: list[Any], collaboration_mode: str) -> str:
+        topic_labels = {
+            "field": "电场与电荷",
+            "voltage-current": "电压与电流",
+            "safety": "用电安全",
+            "circuit": "电路基础",
+            "emergency": "应急处理",
+            "insulation": "绝缘防护",
+            "ethics": "技术伦理",
+            "media": "信息辨识",
+            "animal": "生态与动物",
+            "power": "电功率",
+            "grid": "输电系统",
+        }
+        labels = []
+        for item in strengths:
+            raw = str(item).strip()
+            if not raw:
+                continue
+            key = raw.removeprefix("kp-elec-")
+            labels.append(topic_labels.get(key, raw))
+        focus = "、".join(labels[:2])
+        if focus:
+            return f"这位学伴熟悉“{focus}”，适合通过{collaboration_mode}帮助你补充思路、检查理解。"
+        return f"这位学伴适合与你通过{collaboration_mode}梳理本轮知识，并交流不同的解题思路。"
 
     async def _persist_recommendation(
         self,

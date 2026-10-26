@@ -166,6 +166,19 @@ class StudyBuddyDemoResponse(BaseModel):
     latency_ms: int
 
 
+class StudyBuddyDirectRequest(BaseModel):
+    """The completed learning turn used by the direct buddy recommendation."""
+
+    user_message: str = Field(..., min_length=1, max_length=4000)
+    assistant_message: str = Field(..., min_length=1, max_length=12000)
+
+
+class StudyBuddyDirectResponse(BaseModel):
+    output: dict[str, Any]
+    usage: dict[str, Any]
+    latency_ms: int
+
+
 class HistoryQueryParams(BaseModel):
     conversation_id: str
     before_id: Optional[str] = None

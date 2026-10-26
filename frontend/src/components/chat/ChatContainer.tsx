@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import {
   BookOpen,
   Target,
@@ -11,6 +11,7 @@ import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { ThinkingView } from './ThinkingView';
 import { useChatStore } from '@/stores/chatStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useAuthStore } from '@/stores/authStore';
 import { chatService } from '@/services/chat.service';
 import { toast } from 'sonner';
@@ -46,7 +47,11 @@ export function ChatContainer({ onQuickAction }: Props) {
     clearPendingSafetyGuide,
   } = useChatStore();
   const { accessToken } = useAuthStore();
+  const showAgentResult = useChatStore((s) => s.showAgentResult);
+  const setRightPanelOpen = useUIStore((s) => s.setRightPanelOpen);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [handledBuddyOffer, setHandledBuddyOffer] = useState<string | null>(null);
+  const [isMatchingBuddy, setIsMatchingBuddy] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -177,6 +182,73 @@ export function ChatContainer({ onQuickAction }: Props) {
     void handleSend(option);
   };
 
+  let lastAssistantIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'assistant') {
+      lastAssistantIndex = index;
+      break;
+    }
+  }
+  const buddyOfferMessage = lastAssistantIndex === messages.length - 1
+    ? messages[lastAssistantIndex]
+    : undefined;
+  const hasCompletedCorrection = buddyOfferMessage?.thinking_steps?.some(
+    (step) => step.step === 'content_corrector' && step.status !== 'running',
+  ) === true;
+  const alreadyRecommendedBuddies = buddyOfferMessage?.thinking_steps?.some(
+    (step) => step.step === 'study_buddy',
+  ) === true;
+  let buddySourceQuestion = '';
+  if (lastAssistantIndex > 0) {
+    for (let index = lastAssistantIndex - 1; index >= 0; index -= 1) {
+      if (messages[index].role === 'user') {
+        buddySourceQuestion = messages[index].content;
+        break;
+      }
+    }
+  }
+  const showBuddyOffer = Boolean(
+    buddyOfferMessage
+      && hasCompletedCorrection
+      && buddySourceQuestion
+      && !alreadyRecommendedBuddies
+      && handledBuddyOffer !== buddyOfferMessage.id
+      && !isLoading
+      && !isStreaming,
+  );
+  const buddyTopic = /电阻/.test(buddySourceQuestion) ? '电流、电阻等方向' : /电流/.test(buddySourceQuestion) ? '电流等方向' : '当前学习方向';
+
+  const dismissBuddyOffer = (messageId: string) => {
+    setHandledBuddyOffer(messageId);
+  };
+
+  const handleBuddyRecommendation = async () => {
+    if (!buddyOfferMessage || !buddySourceQuestion || !currentConversationId) return;
+    const sourceConversationId = currentConversationId;
+    const sourceMessageId = buddyOfferMessage.id;
+    setIsMatchingBuddy(true);
+    showAgentResult('study_buddy', '学伴推荐', undefined, 'running');
+    try {
+      const output = await chatService.recommendStudyBuddies(
+        buddySourceQuestion,
+        buddyOfferMessage.content,
+      );
+      const latestState = useChatStore.getState();
+      const latestMessage = latestState.messages[latestState.messages.length - 1];
+      if (latestState.currentConversationId !== sourceConversationId || latestMessage?.id !== sourceMessageId) return;
+      setRightPanelOpen(true);
+      showAgentResult('study_buddy', '学伴推荐', output, 'completed');
+      dismissBuddyOffer(sourceMessageId);
+    } catch {
+      if (useChatStore.getState().currentConversationId === sourceConversationId) {
+        showAgentResult('study_buddy', '学伴推荐', undefined, 'error');
+        toast.error('学伴推荐暂时不可用，请稍后重试');
+      }
+    } finally {
+      setIsMatchingBuddy(false);
+    }
+  };
+
   if (!currentConversationId) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-8 px-4 animate-fade-in-up">
@@ -224,6 +296,22 @@ export function ChatContainer({ onQuickAction }: Props) {
             onRegenerate={msg.role === 'assistant' ? handleRegenerate : undefined}
           />
         ))}
+
+        {showBuddyOffer && (
+          <div className="mx-6 mb-4 ml-[68px] max-w-[75%] rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(6,182,212,.09),rgba(99,102,241,.05))] p-4 animate-fade-in-up">
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-500"><Users size={18} /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-13 font-semibold text-text-primary">是否需要学习伙伴？</p>
+                <p className="mt-1 text-12 leading-5 text-text-secondary">目前认为你在{buddyTopic}还需要继续巩固，是否需要为你推荐几位合适的学伴？</p>
+                <div className="mt-3 flex gap-2">
+                  <button type="button" onClick={() => void handleBuddyRecommendation()} disabled={isMatchingBuddy} className="rounded-lg bg-cyan-500 px-3 py-1.5 text-12 font-medium text-white transition hover:bg-cyan-400 disabled:cursor-wait disabled:opacity-60">{isMatchingBuddy ? '正在匹配学伴…' : '是，推荐3位学伴'}</button>
+                  <button type="button" onClick={() => dismissBuddyOffer(buddyOfferMessage!.id)} disabled={isMatchingBuddy} className="rounded-lg border border-border-subtle px-3 py-1.5 text-12 text-text-secondary transition hover:bg-bg-elevated hover:text-text-primary disabled:opacity-50">否，暂时不用</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isStreaming && (
           <MessageBubble
