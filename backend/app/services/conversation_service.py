@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -13,9 +14,51 @@ from sqlalchemy.orm import selectinload
 from app.models.agent_execution_log import AgentExecutionLog
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.session_feedback import SessionFeedback
 from app.models.user_profile import UserProfile
 
 logger = logging.getLogger(__name__)
+
+
+async def end_conversation(db: AsyncSession, conversation: Conversation) -> Conversation:
+    """Mark a conversation as ended (idempotent)."""
+    if conversation.ended_at is None:
+        conversation.ended_at = datetime.now(timezone.utc)
+        await db.flush()
+    return conversation
+
+
+async def submit_session_questionnaire(
+    db: AsyncSession,
+    conversation: Conversation,
+    q1: int,
+    q2: int,
+    q3: int,
+) -> SessionFeedback:
+    """Persist a 3-question Likert questionnaire and end the conversation."""
+    feedback = SessionFeedback(
+        id=str(uuid.uuid4()),
+        conversation_id=conversation.id,
+        user_id=conversation.user_id,
+        q1_score=q1,
+        q2_score=q2,
+        q3_score=q3,
+        total_score=q1 + q2 + q3,
+    )
+    db.add(feedback)
+    conversation.ended_at = datetime.now(timezone.utc)
+    await db.flush()
+    return feedback
+
+
+async def count_user_messages(db: AsyncSession, conversation_id: str) -> int:
+    """Count user-role messages in a conversation."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(Message)
+        .where(Message.conversation_id == conversation_id, Message.role == "user")
+    )
+    return result.scalar() or 0
 
 
 async def create_conversation(
@@ -155,6 +198,7 @@ async def list_conversations(
                 "workflow_type": conv.workflow_type,
                 "created_at": conv.created_at,
                 "updated_at": conv.updated_at,
+                "ended_at": conv.ended_at,
                 "last_message": (
                     last_msg[:80] + "..." if last_msg and len(last_msg) > 80 else last_msg
                 ),
@@ -299,6 +343,7 @@ async def get_conversation_detail(
         "workflow_type": conv.workflow_type,
         "created_at": conv.created_at,
         "updated_at": conv.updated_at,
+        "ended_at": conv.ended_at,
         "messages": [
             {
                 "id": m.id,

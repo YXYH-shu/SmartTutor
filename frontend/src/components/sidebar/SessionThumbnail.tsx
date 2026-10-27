@@ -143,16 +143,23 @@ export function SessionThumbnail({
         </svg>
       </div>
 
-      {/* 下行:标题 + 时间 */}
+      {/* 下行:标题 + 已结束标记 + 时间 */}
       <div className="flex flex-col leading-tight">
-        <span
-          className={cn(
-            'truncate text-14 font-medium',
-            isActive ? 'text-text-primary' : 'text-text-secondary',
+        <div className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              'truncate text-14 font-medium',
+              isActive ? 'text-text-primary' : 'text-text-secondary',
+            )}
+          >
+            {title}
+          </span>
+          {conversation.ended_at && (
+            <span className="shrink-0 rounded-full border border-border-subtle px-1.5 py-0.5 text-11 text-text-tertiary">
+              已结束
+            </span>
           )}
-        >
-          {title}
-        </span>
+        </div>
         {ts && (
           <span className="truncate text-12 text-text-tertiary font-mono">{ts}</span>
         )}

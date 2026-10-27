@@ -44,6 +44,9 @@ class Conversation(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
 
     # relationships
     user = relationship("User", back_populates="conversations")

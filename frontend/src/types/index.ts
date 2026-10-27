@@ -53,6 +53,19 @@ export interface Conversation {
   // 新增(后端 task 7 字段,旧会话可能为 null)
   knowledge_points?: KnowledgeNode[] | null;
   highlight_agent?: string | null;
+  /** 会话结束时间(调用 end/questionnaire 后由后端写入,null 表示进行中) */
+  ended_at?: string | null;
+}
+
+export interface SessionQuestionnaireResult {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  q1_score: number;
+  q2_score: number;
+  q3_score: number;
+  total_score: number;
+  created_at: string;
 }
 
 export interface ConversationCreate {

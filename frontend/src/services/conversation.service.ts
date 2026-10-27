@@ -3,6 +3,7 @@ import type {
   Conversation,
   ConversationCreate,
   PaginatedResponse,
+  SessionQuestionnaireResult,
 } from '@/types';
 
 export const conversationService = {
@@ -32,5 +33,23 @@ export const conversationService = {
 
   async delete(id: string): Promise<void> {
     await api.delete(`/api/v1/conversations/${id}`);
+  },
+
+  async end(id: string): Promise<Conversation> {
+    const res = await api.post<Conversation>(
+      `/api/v1/conversations/${id}/end`,
+    );
+    return res.data;
+  },
+
+  async submitQuestionnaire(
+    id: string,
+    scores: { q1_score: number; q2_score: number; q3_score: number },
+  ): Promise<SessionQuestionnaireResult> {
+    const res = await api.post<SessionQuestionnaireResult>(
+      `/api/v1/conversations/${id}/questionnaire`,
+      scores,
+    );
+    return res.data;
   },
 };

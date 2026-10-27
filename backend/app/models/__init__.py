@@ -7,6 +7,7 @@ from app.models.user_profile import UserProfile
 from app.models.agent_execution_log import AgentExecutionLog
 from app.models.checkpoint import Checkpoint
 from app.models.message_feedback import MessageFeedback
+from app.models.session_feedback import SessionFeedback
 from app.models.knowledge_point import KnowledgePoint
 from app.models.learning_resource import LearningResource
 from app.models.learner_interaction import (
@@ -31,6 +32,7 @@ __all__ = [
     "AgentExecutionLog",
     "Checkpoint",
     "MessageFeedback",
+    "SessionFeedback",
     "KnowledgePoint",
     "LearningResource",
     "LearnerResourceInteraction",

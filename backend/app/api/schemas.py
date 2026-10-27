@@ -88,6 +88,7 @@ class ConversationResponse(BaseModel):
     workflow_type: Optional[str]
     created_at: datetime
     updated_at: datetime
+    ended_at: Optional[datetime] = None
     last_message: Optional[str] = None  # preview
     knowledge_points: Optional[list["KnowledgeNodeSummary"]] = None
     highlight_agent: Optional[str] = None
@@ -185,6 +186,25 @@ class MessageFeedbackResponse(BaseModel):
     message_id: str
     feedback_type: str
     comment: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SessionQuestionnaireRequest(BaseModel):
+    q1_score: int = Field(..., ge=1, le=3)
+    q2_score: int = Field(..., ge=1, le=3)
+    q3_score: int = Field(..., ge=1, le=3)
+
+
+class SessionQuestionnaireResponse(BaseModel):
+    id: str
+    conversation_id: str
+    user_id: str
+    q1_score: int
+    q2_score: int
+    q3_score: int
+    total_score: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

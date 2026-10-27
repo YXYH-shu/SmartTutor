@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import {
   BookOpen,
   Target,
@@ -6,13 +6,17 @@ import {
   BarChart3,
   Sparkles,
   Bot,
+  CheckCircle2,
+  LogOut,
 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ChatInput } from './ChatInput';
 import { ThinkingView } from './ThinkingView';
+import { SessionEndDialog } from './SessionEndDialog';
 import { useChatStore } from '@/stores/chatStore';
 import { useAuthStore } from '@/stores/authStore';
 import { chatService } from '@/services/chat.service';
+import { conversationService } from '@/services/conversation.service';
 import { toast } from 'sonner';
 
 interface Props {
@@ -22,6 +26,7 @@ interface Props {
 
 export function ChatContainer({ onQuickAction }: Props) {
   const {
+    conversations,
     messages,
     currentConversationId,
     isLoading,
@@ -44,9 +49,33 @@ export function ChatContainer({ onQuickAction }: Props) {
     resetTurn,
     pendingSafetyGuide,
     clearPendingSafetyGuide,
+    markConversationEnded,
   } = useChatStore();
   const { accessToken } = useAuthStore();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const currentConversation = conversations.find(
+    (c) => c.id === currentConversationId,
+  );
+  const isEnded = !!currentConversation?.ended_at;
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+
+  const handleEndSession = async () => {
+    if (!currentConversationId) return;
+    const hasUserMsg = messages.some((m) => m.role === 'user');
+    // 没发过消息:直接结束,无需问卷
+    if (!hasUserMsg) {
+      try {
+        await conversationService.end(currentConversationId);
+        markConversationEnded(currentConversationId);
+        toast.success('会话已结束');
+      } catch (e: any) {
+        toast.error(e?.response?.data?.detail ?? '结束会话失败，请重试');
+      }
+      return;
+    }
+    // 已有对话内容:先完成 3 道问卷再结束
+    setEndDialogOpen(true);
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -68,6 +97,10 @@ export function ChatContainer({ onQuickAction }: Props) {
     }
     if (!currentConversationId) {
       toast.error('请先选择或创建一个对话');
+      return;
+    }
+    if (isEnded) {
+      toast.error('会话已结束，无法发送新消息');
       return;
     }
 
@@ -125,6 +158,10 @@ export function ChatContainer({ onQuickAction }: Props) {
     }
     if (!currentConversationId) {
       toast.error('请先选择或创建一个对话');
+      return;
+    }
+    if (isEnded) {
+      toast.error('会话已结束，无法发送新消息');
       return;
     }
 
@@ -272,13 +309,43 @@ export function ChatContainer({ onQuickAction }: Props) {
         <div ref={bottomRef} />
       </div>
 
+      <div className="flex items-center justify-end border-t border-border-subtle px-4 py-2">
+        {isEnded ? (
+          <div className="mr-auto flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 text-status-success" />
+            <span className="text-12 text-text-tertiary">
+              该会话已结束，可查看历史消息
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={handleEndSession}
+            disabled={isLoading || isStreaming}
+            className="flex items-center gap-1.5 rounded-xl border border-border-subtle px-3 py-1.5 text-12 text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-50"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            结束本次会话
+          </button>
+        )}
+      </div>
+
       <ChatInput
         onSend={handleSend}
-        disabled={isLoading}
-        placeholder="输入你的学习问题..."
+        disabled={isLoading || isEnded}
+        placeholder={isEnded ? '会话已结束' : '输入你的学习问题...'}
         guideOptions={pendingSafetyGuide?.options}
         recommendedOption={pendingSafetyGuide?.recommendedOption}
         onSelectGuide={handleGuideSelect}
+      />
+
+      <SessionEndDialog
+        open={endDialogOpen}
+        conversationId={currentConversationId ?? ''}
+        onClose={() => setEndDialogOpen(false)}
+        onEnded={() => {
+          if (currentConversationId) markConversationEnded(currentConversationId);
+          setEndDialogOpen(false);
+        }}
       />
     </div>
   );

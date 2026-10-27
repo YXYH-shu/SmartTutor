@@ -46,6 +46,8 @@ interface ChatState {
   addConversation: (conv: Conversation) => void;
   removeConversation: (id: string) => void;
   updateConversationTitle: (id: string, title: string) => void;
+  /** 会话结束(无消息直接结束 / 问卷提交后)时把 ended_at 写入对应会话 */
+  markConversationEnded: (id: string) => void;
   setCurrentConversation: (id: string | null) => void;
   setMessages: (msgs: Message[]) => void;
   addMessage: (msg: Message) => void;
@@ -135,6 +137,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === id ? { ...c, title } : c,
+      ),
+    })),
+
+  markConversationEnded: (id) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, ended_at: new Date().toISOString() } : c,
       ),
     })),
 

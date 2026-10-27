@@ -36,7 +36,9 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def send_message(body: SendMessageRequest, user: CurrentUser, db: DBSession):
     """Send a message and get a non-streaming AI response."""
     # Verify conversation ownership
-    await get_conversation(body.conversation_id, user, db)
+    conv = await get_conversation(body.conversation_id, user, db)
+    if conv.ended_at is not None:
+        raise HTTPException(status_code=400, detail="会话已结束，无法发送新消息")
 
     result = await chat_service.send_message(
         db, user.id, body.conversation_id, body.content
@@ -56,7 +58,9 @@ async def stream_message(body: SendMessageRequest, user: CurrentUser, db: DBSess
     The response uses ``text/event-stream`` content type. Each data frame
     contains a JSON object with ``type: "content"`` or ``type: "done"``.
     """
-    await get_conversation(body.conversation_id, user, db)
+    conv = await get_conversation(body.conversation_id, user, db)
+    if conv.ended_at is not None:
+        raise HTTPException(status_code=400, detail="会话已结束，无法发送新消息")
 
     return StreamingResponse(
         chat_service.stream_message(
@@ -79,7 +83,9 @@ async def regenerate_message(body: RegenerateRequest, user: CurrentUser, db: DBS
     Finds the last user message, deletes the last assistant message,
     and re-runs the graph to produce a new response.
     """
-    await get_conversation(body.conversation_id, user, db)
+    conv = await get_conversation(body.conversation_id, user, db)
+    if conv.ended_at is not None:
+        raise HTTPException(status_code=400, detail="会话已结束，无法发送新消息")
 
     # Find the last user message
     msgs = (
