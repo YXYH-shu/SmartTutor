@@ -33,7 +33,7 @@ export function AgentInfoPanel() {
   const close = () => setRightPanelOpen(false);
 
   return (
-    <div className="relative flex h-full w-80 flex-col border-l border-border-subtle bg-bg-base animate-slide-in-right">
+    <div className="relative flex h-full w-full flex-col border-l border-border-subtle bg-bg-base animate-slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">

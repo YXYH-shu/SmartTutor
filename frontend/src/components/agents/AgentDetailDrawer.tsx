@@ -17,8 +17,18 @@ import { getIcon, getValueByPath, parseAgentContent } from './agentUtils';
 import { ResourceRecommendationFlow } from './ResourceRecommendationFlow';
 import { StudyBuddyFlow } from './StudyBuddyFlow';
 import { ContentCorrectorFlow, SafetyMonitorFlow } from './trace43';
+import { EmotionFlow, EmpathyFlow } from './trace44';
 import { LearningModuleDialog } from './learning-modules/LearningModuleDialog';
 import type { ResourceRecommendationOutput, StudyBuddyOutput } from '@/types';
+
+/** 共情注入对比的"前"侧文本：优先润色结果，其次知识回应原文 */
+function extractBaseText(polisher: Record<string, unknown> | null, responder: Record<string, unknown> | null): string | null {
+  const fromPolisher = polisher?.polished_content;
+  if (typeof fromPolisher === 'string' && fromPolisher.trim()) return fromPolisher;
+  const fromResponder = responder?.response_text;
+  if (typeof fromResponder === 'string' && fromResponder.trim()) return fromResponder;
+  return null;
+}
 
 export function AgentDetailDrawer() {
   const selectedDetailAgent = useChatStore((s) => s.selectedDetailAgent);
@@ -93,6 +103,42 @@ export function AgentDetailDrawer() {
         onBack={() => setSelectedDetailAgent(null)}
         onClose={() => setSelectedDetailAgent(null)}
         output={liveOutput}
+        isRunning={isRunning}
+      />
+    );
+  }
+
+  // 课题 4.4：情感分析 / 共情回应使用专属流程可视化
+  if (selectedDetailAgent === 'emotion_analyzer' || selectedDetailAgent === 'empathy_generator') {
+    const liveOutput = parseAgentContent(agentTrace[selectedDetailAgent]?.content);
+    const emotionOutput = parseAgentContent(agentTrace.emotion_analyzer?.content);
+    const currentMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content;
+    const polisherOutput = parseAgentContent(agentTrace.content_polisher?.content);
+    const responderOutput = parseAgentContent(agentTrace.knowledge_responder?.content);
+    const baseContent = extractBaseText(polisherOutput, responderOutput);
+    const isRunning =
+      !liveOutput &&
+      (currentAgent === selectedDetailAgent ||
+        currentTurn?.agentTimeline.some(
+          (item) => item.agentName === selectedDetailAgent && item.status === 'running',
+        ) === true);
+    return selectedDetailAgent === 'emotion_analyzer' ? (
+      <EmotionFlow
+        onBack={() => setSelectedDetailAgent(null)}
+        onClose={() => setSelectedDetailAgent(null)}
+        output={liveOutput}
+        message={currentMessage}
+        isRunning={isRunning}
+      />
+    ) : (
+      <EmpathyFlow
+        onBack={() => setSelectedDetailAgent(null)}
+        onClose={() => setSelectedDetailAgent(null)}
+        output={liveOutput}
+        emotionOutput={emotionOutput}
+        baseContent={baseContent}
         isRunning={isRunning}
       />
     );

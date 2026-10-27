@@ -7,12 +7,18 @@ interface UIState {
   sidebarOpen: boolean;
   theme: Theme;
   rightPanelOpen: boolean;
+  /** 右栏像素宽度,可拖拽调整(280-560) */
+  rightPanelWidth: number;
+  /** 拖拽中需关掉宽度过渡动画 */
+  isResizingRightPanel: boolean;
   selectedAgent: string;
   toggleSidebar: () => void;
   setSidebarOpen: (v: boolean) => void;
   setTheme: (t: Theme) => void;
   toggleRightPanel: () => void;
   setRightPanelOpen: (v: boolean) => void;
+  setRightPanelWidth: (v: number) => void;
+  setResizingRightPanel: (v: boolean) => void;
   setSelectedAgent: (agent: string) => void;
 }
 
@@ -39,6 +45,8 @@ export const useUIStore = create<UIState>()(
       sidebarOpen: true,
       theme: 'dark',
       rightPanelOpen: false,
+      rightPanelWidth: 320,
+      isResizingRightPanel: false,
       selectedAgent: 'emotion_analyzer',
 
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -49,11 +57,13 @@ export const useUIStore = create<UIState>()(
       },
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
       setRightPanelOpen: (rightPanelOpen) => set({ rightPanelOpen }),
+      setRightPanelWidth: (rightPanelWidth) => set({ rightPanelWidth }),
+      setResizingRightPanel: (isResizingRightPanel) => set({ isResizingRightPanel }),
       setSelectedAgent: (selectedAgent) => set({ selectedAgent }),
     }),
     {
       name: 'smart-tutor-ui',
-      partialize: (s) => ({ theme: s.theme }),
+      partialize: (s) => ({ theme: s.theme, rightPanelWidth: s.rightPanelWidth }),
       // rehydrate 之后把 theme 同步到 DOM，避免刷新后 token 未应用
       onRehydrateStorage: () => (state) => {
         if (state?.theme) applyTheme(state.theme);
