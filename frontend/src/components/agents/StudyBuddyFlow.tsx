@@ -52,6 +52,15 @@ function roleFor(buddy: RecommendedBuddy): { title: string; description: string;
   return { title: '基础概念搭档', description: '适合互相讲解概念和梳理电路知识', tone: 'text-cyan-700 bg-cyan-500/10 border-cyan-400/20 dark:text-cyan-300' };
 }
 
+function buddyReason(buddy: RecommendedBuddy): string {
+  if (buddy.recommend_reason?.trim()) return buddy.recommend_reason.trim();
+  const topics = (buddy.strengths ?? []).slice(0, 2).map(topicLabel);
+  const mode = buddy.collaboration_mode || '互问互答';
+  return topics.length > 0
+    ? `这位学伴熟悉“${topics.join('、')}”，适合通过${mode}帮助你补充思路、检查理解。`
+    : `这位学伴适合与你通过${mode}梳理本轮知识，并交流不同的解题思路。`;
+}
+
 function BuddyMotionStyles() {
   return (
     <style>{`
@@ -121,7 +130,7 @@ function BuddyCard({ buddy, index }: { buddy: RecommendedBuddy; index: number })
     <article className="student-buddy-enter group rounded-xl border border-border-subtle bg-bg-elevated/75 p-3 transition duration-300 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:shadow-[0_12px_28px_rgba(6,182,212,.08)]" style={{ animationDelay: `${130 + index * 90}ms` }}>
       <div className="flex gap-3">
         <div className="relative"><Avatar name={name} rank={rank} /><span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-md border border-bg-elevated bg-text-primary px-1 font-mono text-[8px] text-bg-base">{rank}</span></div>
-        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><h5 className="text-[12px] font-semibold text-text-primary">{name}</h5><span className={cn('rounded-full border px-1.5 py-0.5 text-[8px]', role.tone)}>{role.title}</span></div><p className="mt-1 text-[9px] leading-4 text-text-secondary">{role.description}</p>{topics.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{topics.map((topic) => <span key={topic} className="rounded-full border border-border-subtle bg-bg-base/70 px-1.5 py-0.5 text-[9px] text-text-secondary">{topic}</span>)}</div>}{buddy.contact_suggestion && <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-cyan-500/5 px-2 py-1.5 text-[9px] leading-4 text-text-secondary"><MessageCircle size={10} className="mt-0.5 shrink-0 text-cyan-500" /><span>{buddy.contact_suggestion}</span></div>}</div>
+        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><h5 className="text-[12px] font-semibold text-text-primary">{name}</h5><span className={cn('rounded-full border px-1.5 py-0.5 text-[8px]', role.tone)}>{role.title}</span></div><p className="mt-1 text-[9px] leading-4 text-text-secondary">{role.description}</p>{topics.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{topics.map((topic) => <span key={topic} className="rounded-full border border-border-subtle bg-bg-base/70 px-1.5 py-0.5 text-[9px] text-text-secondary">{topic}</span>)}</div>}<div className="mt-2 rounded-lg border border-violet-400/15 bg-violet-400/5 px-2 py-1.5"><div className="flex items-center gap-1 text-[9px] font-semibold text-violet-700 dark:text-violet-300"><Sparkles size={10} /><span>为什么推荐</span></div><p className="mt-1 text-[9px] leading-4 text-text-secondary">{buddyReason(buddy)}</p></div>{buddy.contact_suggestion && <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-cyan-500/5 px-2 py-1.5 text-[9px] leading-4 text-text-secondary"><MessageCircle size={10} className="mt-0.5 shrink-0 text-cyan-500" /><span>{buddy.contact_suggestion}</span></div>}</div>
       </div>
     </article>
   );

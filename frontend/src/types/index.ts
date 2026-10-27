@@ -301,6 +301,7 @@ export interface RecommendedBuddy {
   rank?: number;
   strengths?: string[];
   weaknesses?: string[];
+  recommend_reason?: string;
   contact_suggestion?: string;
   collaboration_mode?: string;
 }

@@ -1,4 +1,4 @@
-"""Read-only agent registry endpoints."""
+"""Agent configuration and direct-invocation endpoints."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.api.schemas import AgentConfigResponse
+from app.api.deps import CurrentUser
+from app.api.schemas import AgentConfigResponse, StudyBuddyDirectRequest, StudyBuddyDirectResponse
 from app.config import settings
-from app.services.agents import AGENT_REGISTRY, BaseAgent, list_agents
+from app.services.agents import AGENT_REGISTRY, BaseAgent, get_agent, list_agents
 from app.services.llm_client import LLMClient
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -58,3 +59,33 @@ async def list_agent_configs() -> list[AgentConfigResponse]:
             continue
         configs.append(AgentConfigResponse(agent=agent.name, **_effective_llm_config(agent)))
     return configs
+
+
+@router.post("/study-buddy/recommend", response_model=StudyBuddyDirectResponse)
+async def recommend_study_buddies(
+    body: StudyBuddyDirectRequest,
+    user: CurrentUser,
+) -> StudyBuddyDirectResponse:
+    """Run only the study-buddy agent using the completed learning turn as context."""
+    result = await get_agent("study_buddy").execute(
+        input_data={
+            "user_id": str(user.id),
+            "current_message": "请为我推荐3位学伴一起学习",
+            "recent_messages": [
+                {"role": "user", "content": body.user_message},
+                {"role": "assistant", "content": body.assistant_message},
+            ],
+            "topic": body.user_message,
+        },
+        context={
+            "user_id": str(user.id),
+            "persist_recommendation": False,
+            "log_execution": False,
+            "direct_invocation": True,
+        },
+    )
+    return StudyBuddyDirectResponse(
+        output=result.get("output", {}),
+        usage=result.get("usage", {}),
+        latency_ms=int(result.get("latency_ms", 0)),
+    )

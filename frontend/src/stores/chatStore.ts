@@ -80,6 +80,13 @@ interface ChatState {
   clearPendingSafetyGuide: () => void;
   /** 设置详情抽屉当前 agent(null 关闭抽屉) */
   setSelectedDetailAgent: (name: string | null) => void;
+  /** 更新单个直调智能体状态；运行时进入协作列表，完成后注入结构化结果。 */
+  showAgentResult: (
+    name: string,
+    label: string,
+    output?: Record<string, unknown>,
+    status?: 'running' | 'completed' | 'error',
+  ) => void;
 }
 
 const initialState = {
@@ -380,6 +387,47 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }),
 
   setSelectedDetailAgent: (name) => set({ selectedDetailAgent: name }),
+
+  showAgentResult: (name, label, output, status = 'completed') =>
+    set((s) => {
+      const now = Date.now();
+      const content = output ? JSON.stringify(output) : '';
+      const previous = s.currentTurn?.agentTimeline.find((item) => item.agentName === name);
+      const baseTurn = s.currentTurn ?? {
+        turnId: `direct-${now}`,
+        touchedNodes: [],
+        focusAgents: s.currentFocusAgents,
+        agentTimeline: [],
+        startedAt: now,
+      };
+      const currentTurn = {
+        ...baseTurn,
+        agentTimeline: [
+          ...baseTurn.agentTimeline.filter((item) => item.agentName !== name),
+          {
+            agentName: name,
+            agentLabel: label,
+            startedAt: previous?.startedAt ?? now,
+            ...(status === 'running' ? {} : { durationMs: now - (previous?.startedAt ?? now) }),
+            status,
+            isFocus: false,
+            ...(content ? { output: content } : {}),
+          },
+        ],
+      };
+      const agentTrace = { ...s.agentTrace };
+      if (content) {
+        agentTrace[name] = { content, label, updatedAt: new Date(now).toISOString() };
+      } else {
+        delete agentTrace[name];
+      }
+      return {
+        agentTrace,
+        currentTurn,
+        currentAgent: status === 'running' ? name : null,
+        selectedDetailAgent: status === 'completed' ? name : s.selectedDetailAgent,
+      };
+    }),
 
   reset: () => set(initialState),
 }));

@@ -558,7 +558,7 @@ class ResourceRecommenderAgent(BaseAgent):
                     "similarity_score": self._safe_float(pair.score, 0),
                     "similarity_reference_id": pair.reference_id,
                     "similarity_reference_title": str(anchor.get("title") or anchor.get("name") or pair.reference_id),
-                    "recommend_reason": "Based on similarity to the selected reference resource.",
+                    "recommend_reason": f"它与《{str(anchor.get('title') or anchor.get('name') or '参考资源')}》主题相近，适合在已有基础上继续拓展。",
                 }
             )
             results.append(candidate)
@@ -777,7 +777,7 @@ class ResourceRecommenderAgent(BaseAgent):
         return {resource_id: details[resource_id] for resource_id in resource_ids if resource_id in details}
 
     def _resource_row_to_candidate(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
+        resource = {
             "id": self._row_resource_id(row),
             "type": str(row.get("type") or "article"),
             "title": str(row.get("title") or row.get("name") or "Untitled resource"),
@@ -785,8 +785,33 @@ class ResourceRecommenderAgent(BaseAgent):
             "difficulty": self._difficulty_label(row.get("difficulty") or row.get("difficult")),
             "time_needed_min": self._safe_int(row.get("time_needed_min") or row.get("time_need"), 0),
             "knowledge_tags": self._as_list(row.get("knowledge_tags") or row.get("tags")),
-            "recommend_reason": str(row.get("recommend_reason") or "Selected by resource recall."),
         }
+        reason = str(row.get("recommend_reason") or "").strip()
+        if not reason or reason in {
+            "Selected by resource recall.",
+            "Based on similarity to the selected reference resource.",
+        }:
+            reason = self._student_recommend_reason(resource)
+        resource["recommend_reason"] = reason
+        return resource
+
+    def _student_recommend_reason(self, resource: dict[str, Any]) -> str:
+        tags = [str(tag).strip() for tag in self._as_list(resource.get("knowledge_tags")) if str(tag).strip()]
+        focus = "、".join(tags[:2])
+        prefix = f"它聚焦“{focus}”，" if focus else "它与本轮学习主题紧密相关，"
+        resource_type = str(resource.get("type") or "")
+        difficulty = str(resource.get("difficulty") or "")
+        if resource_type == "practice":
+            return prefix + "适合通过动手观察来验证刚学到的规律。"
+        if resource_type == "quiz":
+            return prefix + "适合在学习后检查理解，并发现还需要巩固的地方。"
+        if resource_type == "video":
+            if difficulty == "beginner":
+                return prefix + "内容从基础讲起，适合先建立直观理解。"
+            return prefix + "通过视频联系具体场景，适合在掌握基础后继续拓展。"
+        if difficulty == "beginner":
+            return prefix + "内容难度友好，适合先梳理核心概念。"
+        return prefix + "适合系统梳理知识，并加深对实际应用的理解。"
 
     @staticmethod
     def _row_resource_id(row: dict[str, Any]) -> str:
